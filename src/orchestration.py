@@ -3,8 +3,8 @@
 import json
 import os
 
-from . import deploy
-from . import registry
+import deploy
+import registry
 
 
 def run_pipeline(task_description):

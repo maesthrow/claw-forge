@@ -45,23 +45,31 @@ def register_agent(name, workspace_path):
     """Register agent in OpenClaw gateway."""
     result = run_cmd(f'openclaw agents add {name} --workspace "{workspace_path}" --non-interactive')
 
-    # OpenClaw creates a default workspace-<name>/ dir with template files.
-    # Overwrite them with our files to prevent conflicts.
+    # OpenClaw creates a default workspace-<name>/ dir with template files
+    # (AGENTS.md, BOOTSTRAP.md, IDENTITY.md, etc.) that conflict with ours.
+    # Remove all defaults and copy our files instead.
     openclaw_home = os.path.expanduser("~/.openclaw")
     default_workspace = os.path.join(openclaw_home, f"workspace-{name}")
     if os.path.exists(default_workspace):
-        # Copy our SOUL.md over the default
-        our_soul = os.path.join(workspace_path, "SOUL.md")
-        if os.path.exists(our_soul):
-            shutil.copy2(our_soul, os.path.join(default_workspace, "SOUL.md"))
+        # Remove all default template files
+        for fname in os.listdir(default_workspace):
+            fpath = os.path.join(default_workspace, fname)
+            if os.path.isfile(fpath):
+                os.remove(fpath)
 
-        # Copy our AGENTS.md or remove the default
-        our_agents = os.path.join(workspace_path, "AGENTS.md")
-        default_agents = os.path.join(default_workspace, "AGENTS.md")
-        if os.path.exists(our_agents):
-            shutil.copy2(our_agents, default_agents)
-        elif os.path.exists(default_agents):
-            os.remove(default_agents)
+        # Copy our files into the default workspace
+        for fname in os.listdir(workspace_path):
+            src = os.path.join(workspace_path, fname)
+            if os.path.isfile(src):
+                shutil.copy2(src, os.path.join(default_workspace, fname))
+
+        # Copy skills directory if exists
+        our_skills = os.path.join(workspace_path, "skills")
+        default_skills = os.path.join(default_workspace, "skills")
+        if os.path.exists(our_skills):
+            if os.path.exists(default_skills):
+                shutil.rmtree(default_skills)
+            shutil.copytree(our_skills, default_skills)
 
     return result
 

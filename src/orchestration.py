@@ -118,8 +118,13 @@ python3 /opt/clawforge/src/main.py switch --agent architect
 
     artifacts = call_agent_with_retry("developer", developer_prompt)
 
-    # 6. Tester: validate artifacts
-    tester_prompt = f"""Проверь артефакты агента на соответствие требованиям.
+    # 6. Tester + Validator cycle with retry
+    max_tester_retries = 2
+    max_validator_retries = 1
+
+    for validator_attempt in range(max_validator_retries + 1):
+        # Tester
+        tester_prompt = f"""Проверь артефакты агента на соответствие требованиям.
 
 Требования:
 {json.dumps(requirements, ensure_ascii=False, indent=2)}
@@ -131,8 +136,8 @@ python3 /opt/clawforge/src/main.py switch --agent architect
 1. SOUL.md описывает все capabilities из требований?
 2. Skills покрывают все needs из требований?
 3. Нет ли противоречий в инструкциях?
-4. Если нужен heartbeat — есть ли конфигурация?
-5. Есть ли инструкция по /back?
+4. Есть ли блок "Правило первого сообщения" с командами /main и /new?
+5. Есть ли блок "Команда возврата" с python3 /opt/clawforge/src/main.py switch --agent architect?
 
 Верни JSON:
 {{
@@ -143,11 +148,12 @@ python3 /opt/clawforge/src/main.py switch --agent architect
 
 Верни ТОЛЬКО JSON."""
 
-    test_report = call_agent_with_retry("tester", tester_prompt)
+        test_report = call_agent_with_retry("tester", tester_prompt)
 
-    # 7. If tester found issues, send back to developer
-    if not test_report.get("approved", False):
-        fix_prompt = f"""Тестировщик нашёл проблемы в артефактах.
+        # Tester reject → developer fix (max retries)
+        tester_retries = 0
+        while not test_report.get("approved", False) and tester_retries < max_tester_retries:
+            fix_prompt = f"""Тестировщик нашёл проблемы в артефактах.
 
 Проблемы: {json.dumps(test_report.get('issues', []), ensure_ascii=False)}
 Предложения: {json.dumps(test_report.get('fixes', []), ensure_ascii=False)}
@@ -155,12 +161,22 @@ python3 /opt/clawforge/src/main.py switch --agent architect
 Исходные артефакты:
 {json.dumps(artifacts, ensure_ascii=False, indent=2)}
 
-Исправь и верни обновлённый JSON в том же формате."""
+Исправь и верни обновлённый JSON в том же формате.
+ВАЖНО: команды /main и /new должны быть сохранены с символом косой черты."""
 
-        artifacts = call_agent_with_retry("developer", fix_prompt)
+            artifacts = call_agent_with_retry("developer", fix_prompt)
+            test_report = call_agent_with_retry("tester", tester_prompt)
+            tester_retries += 1
 
-    # 8. Validator: final approval
-    validator_prompt = f"""Финальная проверка агента перед деплоем.
+        if not test_report.get("approved", False):
+            return {
+                "action": "rejected",
+                "reason": f"Тестировщик не одобрил после {max_tester_retries} попыток исправления.",
+                "message": "Не удалось создать агента: тестировщик нашёл неисправимые проблемы."
+            }
+
+        # Validator
+        validator_prompt = f"""Финальная проверка агента перед деплоем.
 
 Требования:
 {json.dumps(requirements, ensure_ascii=False, indent=2)}
@@ -179,16 +195,33 @@ python3 /opt/clawforge/src/main.py switch --agent architect
 
 Верни ТОЛЬКО JSON."""
 
-    validation = call_agent_with_retry("validator", validator_prompt)
+        validation = call_agent_with_retry("validator", validator_prompt)
 
-    if not validation.get("approved", False):
+        if validation.get("approved", False):
+            break
+
+        # Validator rejected → retry with fix
+        if validator_attempt < max_validator_retries:
+            fix_prompt = f"""Валидатор отклонил агента.
+
+Причина: {validation.get('reason', 'не указана')}
+
+Исходные артефакты:
+{json.dumps(artifacts, ensure_ascii=False, indent=2)}
+
+Исправь причину отказа и верни обновлённый JSON в том же формате.
+ВАЖНО: команды /main и /new должны быть сохранены с символом косой черты."""
+
+            artifacts = call_agent_with_retry("developer", fix_prompt)
+            continue
+
         return {
             "action": "rejected",
             "reason": validation.get("reason", "Валидатор отклонил"),
-            "message": f"Создание агента отклонено: {validation.get('reason')}"
+            "message": f"Не удалось создать агента: {validation.get('reason')}. Попробуйте уточнить задачу."
         }
 
-    # 9. Deploy
+    # 7. Deploy
     agent_name = requirements["agent_name"]
 
     if requirements.get("decision") == "extend_existing":

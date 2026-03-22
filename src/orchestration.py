@@ -38,8 +38,7 @@ def run_pipeline(task_description):
 
 Верни ТОЛЬКО JSON, без пояснений."""
 
-    analyst_response = deploy.call_agent("analyst", analyst_prompt)
-    requirements = parse_json_response(analyst_response)
+    requirements = call_agent_with_retry("analyst", analyst_prompt)
 
     # 3. Handle reuse case
     if requirements.get("decision") == "reuse_existing":
@@ -93,7 +92,8 @@ def run_pipeline(task_description):
 - Чёткая роль и экспертиза агента
 - Инструкции по взаимодействию с пользователем
 - Границы компетенций
-- Инструкция: если пользователь пишет "назад", "/back", "вернись" — выполни: python3 /opt/clawforge/src/main.py switch --agent orchestrator
+- Правило первого сообщения: при первом сообщении в сессии ВСЕГДА представься — кто ты и что умеешь. Покажи команды: /main — вернуться к архитектору, /new — новая сессия
+- Инструкция: если пользователь пишет "/main", "назад", "вернись" — выполни: python3 /opt/clawforge/src/main.py switch --agent architect
 
 Требования к skills (SKILL.md):
 - YAML frontmatter (name, description) + markdown body
@@ -101,8 +101,7 @@ def run_pipeline(task_description):
 
 Верни ТОЛЬКО JSON."""
 
-    developer_response = deploy.call_agent("developer", developer_prompt)
-    artifacts = parse_json_response(developer_response)
+    artifacts = call_agent_with_retry("developer", developer_prompt)
 
     # 6. Tester: validate artifacts
     tester_prompt = f"""Проверь артефакты агента на соответствие требованиям.
@@ -129,8 +128,7 @@ def run_pipeline(task_description):
 
 Верни ТОЛЬКО JSON."""
 
-    tester_response = deploy.call_agent("tester", tester_prompt)
-    test_report = parse_json_response(tester_response)
+    test_report = call_agent_with_retry("tester", tester_prompt)
 
     # 7. If tester found issues, send back to developer
     if not test_report.get("approved", False):
@@ -144,8 +142,7 @@ def run_pipeline(task_description):
 
 Исправь и верни обновлённый JSON в том же формате."""
 
-        developer_response = deploy.call_agent("developer", fix_prompt)
-        artifacts = parse_json_response(developer_response)
+        artifacts = call_agent_with_retry("developer", fix_prompt)
 
     # 8. Validator: final approval
     validator_prompt = f"""Финальная проверка агента перед деплоем.
@@ -167,8 +164,7 @@ def run_pipeline(task_description):
 
 Верни ТОЛЬКО JSON."""
 
-    validator_response = deploy.call_agent("validator", validator_prompt)
-    validation = parse_json_response(validator_response)
+    validation = call_agent_with_retry("validator", validator_prompt)
 
     if not validation.get("approved", False):
         return {
@@ -281,13 +277,74 @@ def format_registry_for_prompt(agents):
 
 
 def parse_json_response(response):
-    """Extract JSON from LLM response, handling markdown code blocks."""
+    """Extract JSON from LLM response, handling markdown code blocks and extra text."""
     text = response.strip()
+
+    # Try markdown code blocks first
     if "```json" in text:
         text = text.split("```json")[1].split("```")[0]
     elif "```" in text:
         text = text.split("```")[1].split("```")[0]
-    return json.loads(text.strip())
+
+    # Try to find JSON object/array boundaries
+    text = text.strip()
+    for start_char, end_char in [('{', '}'), ('[', ']')]:
+        start = text.find(start_char)
+        if start != -1:
+            end = text.rfind(end_char)
+            if end != -1:
+                try:
+                    return json.loads(text[start:end + 1])
+                except json.JSONDecodeError:
+                    continue
+
+    return json.loads(text)
+
+
+def call_agent_with_retry(agent_name, prompt, max_retries=2):
+    """Call agent and parse JSON response, retrying on parse failure."""
+    response = deploy.call_agent(agent_name, prompt)
+    log_pipeline_event(agent_name, prompt, response, "ok")
+
+    try:
+        return parse_json_response(response)
+    except (json.JSONDecodeError, ValueError) as e:
+        log_pipeline_event(agent_name, prompt, response, f"parse_error: {e}")
+
+    # Retry with explicit JSON instruction
+    for attempt in range(max_retries):
+        retry_prompt = (
+            f"Предыдущий ответ не удалось распарсить как JSON. "
+            f"Верни ТОЛЬКО валидный JSON без какого-либо текста до или после. "
+            f"Никаких пояснений, только JSON.\n\n"
+            f"Исходный запрос:\n{prompt}"
+        )
+        response = deploy.call_agent(agent_name, retry_prompt)
+        log_pipeline_event(agent_name, f"retry_{attempt + 1}", response, "retry")
+
+        try:
+            return parse_json_response(response)
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    raise ValueError(f"Agent {agent_name} failed to return valid JSON after {max_retries} retries")
+
+
+def log_pipeline_event(agent_name, prompt, response, status):
+    """Log pipeline events to file."""
+    import datetime
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "pipeline.log")
+
+    timestamp = datetime.datetime.now().isoformat()
+    prompt_short = prompt[:200].replace('\n', ' ')
+    response_short = response[:500].replace('\n', ' ')
+
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(f"[{timestamp}] agent={agent_name} status={status}\n")
+        f.write(f"  prompt: {prompt_short}\n")
+        f.write(f"  response: {response_short}\n\n")
 
 
 def get_telegram_user_id():

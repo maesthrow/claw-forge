@@ -16,8 +16,34 @@ import deploy
 
 def cmd_create(args):
     registry.init_db()
-    result = orchestration.run_pipeline(args.task)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+    if args.notify:
+        # Background mode: fork and return immediately
+        channel, user_id = args.notify.split(":")
+        pid = os.fork()
+        if pid > 0:
+            # Parent: return immediately
+            print("Конвейер создания запущен в фоне. Результат придёт в чат.")
+            return
+        # Child: run pipeline and notify
+        try:
+            result = orchestration.run_pipeline(args.task)
+            msg = result.get("message", "Конвейер завершён.")
+            if result.get("action") == "created":
+                msg += f"\nИспользуй /set {result['agent_name']} чтобы переключиться."
+            elif result.get("action") == "extended":
+                msg += f"\nАгент {result['agent_name']} расширен."
+            elif result.get("action") == "reuse":
+                msg += f"\nИспользуй /set {result['agent_name']} чтобы переключиться."
+            deploy.send_notification(channel, user_id, msg)
+        except Exception as e:
+            deploy.send_notification(channel, user_id, f"Ошибка при создании агента: {str(e)[:300]}")
+        finally:
+            os._exit(0)
+    else:
+        # Sync mode (for debugging)
+        result = orchestration.run_pipeline(args.task)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 def cmd_list(args):
@@ -68,6 +94,7 @@ def main():
 
     p_create = subparsers.add_parser("create", help="Create a new agent from task description")
     p_create.add_argument("--task", required=True, help="Task description")
+    p_create.add_argument("--notify", help="Notify target after completion (e.g. telegram:541534272)")
     p_create.set_defaults(func=cmd_create)
 
     p_list = subparsers.add_parser("list", help="List all agents in registry")

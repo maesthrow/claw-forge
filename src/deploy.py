@@ -98,7 +98,7 @@ def call_agent(agent_name, message):
     """Send a message to an agent and get the response."""
     escaped_message = message.replace('"', '\\"')
     return run_cmd(
-        f'openclaw agent --agent {agent_name} --message "{escaped_message}" --timeout 300'
+        f'openclaw agent --agent {agent_name} --message "{escaped_message}" --timeout 600'
     )
 
 

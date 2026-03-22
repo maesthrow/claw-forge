@@ -59,12 +59,12 @@ def install():
 
     # 2. Orchestrator SOUL.md + AGENTS.md
     step = len(BASE_AGENTS) + 1
-    print(f"[{step}/{total_steps}] Configuring orchestrator...")
-    src_soul = os.path.join(SCRIPT_DIR, "agents", "orchestrator", "SOUL.md")
+    print(f"[{step}/{total_steps}] Configuring architect...")
+    src_soul = os.path.join(SCRIPT_DIR, "agents", "architect", "SOUL.md")
     dst_soul = os.path.join(MAIN_WORKSPACE, "SOUL.md")
     shutil.copy2(src_soul, dst_soul)
 
-    src_agents = os.path.join(SCRIPT_DIR, "agents", "orchestrator", "AGENTS.md")
+    src_agents = os.path.join(SCRIPT_DIR, "agents", "architect", "AGENTS.md")
     dst_agents = os.path.join(MAIN_WORKSPACE, "AGENTS.md")
     if os.path.exists(src_agents):
         shutil.copy2(src_agents, dst_agents)
@@ -88,17 +88,17 @@ def install():
     registry.init_db()
     print("  done")
 
-    # 5. Protect orchestrator config files (read-only)
+    # 5. Protect architect config files (read-only)
     step += 1
-    print(f"[{step}/{total_steps}] Protecting orchestrator config files...")
+    print(f"[{step}/{total_steps}] Protecting architect config files...")
     protect_file(os.path.join(MAIN_WORKSPACE, "SOUL.md"))
     protect_file(os.path.join(MAIN_WORKSPACE, "AGENTS.md"))
     protect_file(os.path.join(MAIN_WORKSPACE, "skills", "claw-forge", "SKILL.md"))
     print("  done")
 
     print(f"\n=== ClawForge installed! ===")
-    print(f"Base agents: {len(BASE_AGENTS) + 1} (orchestrator + {', '.join(BASE_AGENTS)})")
-    print(f'Send your bot a message: "what agents do you have?"')
+    print(f"Base agents: {len(BASE_AGENTS) + 1} (architect + {', '.join(BASE_AGENTS)})")
+    print(f"Send your bot a message in Telegram to start.")
 
 
 def update():
@@ -117,16 +117,16 @@ def update():
             shutil.copy2(src_soul, dst_soul)
             print(f"  {agent} SOUL.md updated")
 
-    src_soul = os.path.join(SCRIPT_DIR, "agents", "orchestrator", "SOUL.md")
+    src_soul = os.path.join(SCRIPT_DIR, "agents", "architect", "SOUL.md")
     dst_soul = os.path.join(MAIN_WORKSPACE, "SOUL.md")
     shutil.copy2(src_soul, dst_soul)
-    print("  orchestrator SOUL.md updated")
+    print("  architect SOUL.md updated")
 
-    src_agents = os.path.join(SCRIPT_DIR, "agents", "orchestrator", "AGENTS.md")
+    src_agents = os.path.join(SCRIPT_DIR, "agents", "architect", "AGENTS.md")
     dst_agents = os.path.join(MAIN_WORKSPACE, "AGENTS.md")
     if os.path.exists(src_agents):
         shutil.copy2(src_agents, dst_agents)
-    print("  orchestrator AGENTS.md updated")
+    print("  architect AGENTS.md updated")
 
     skill_dir = os.path.join(MAIN_WORKSPACE, "skills", "claw-forge")
     os.makedirs(skill_dir, exist_ok=True)
@@ -146,7 +146,7 @@ def update():
 def uninstall():
     print("=== ClawForge Uninstall ===\n")
 
-    # Unprotect orchestrator files before removal
+    # Unprotect architect files before removal
     unprotect_file(os.path.join(MAIN_WORKSPACE, "SOUL.md"))
     unprotect_file(os.path.join(MAIN_WORKSPACE, "AGENTS.md"))
     unprotect_file(os.path.join(MAIN_WORKSPACE, "skills", "claw-forge", "SKILL.md"))
@@ -162,7 +162,7 @@ def uninstall():
     agents_md = os.path.join(MAIN_WORKSPACE, "AGENTS.md")
     if os.path.exists(agents_md):
         os.remove(agents_md)
-        print("  orchestrator AGENTS.md removed")
+        print("  architect AGENTS.md removed")
 
     skill_dir = os.path.join(MAIN_WORKSPACE, "skills", "claw-forge")
     if os.path.exists(skill_dir):

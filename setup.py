@@ -69,6 +69,13 @@ def install():
     # 2. Architect SOUL.md + AGENTS.md
     step = len(BASE_AGENTS) + 1
     print(f"[{step}/{total_steps}] Configuring architect...")
+
+    # Remove OpenClaw default template files from main workspace
+    for default_file in ["BOOTSTRAP.md", "IDENTITY.md", "USER.md", "TOOLS.md", "HEARTBEAT.md"]:
+        fpath = os.path.join(MAIN_WORKSPACE, default_file)
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
     src_soul = os.path.join(SCRIPT_DIR, "agents", "architect", "SOUL.md")
     dst_soul = os.path.join(MAIN_WORKSPACE, "SOUL.md")
     shutil.copy2(src_soul, dst_soul)

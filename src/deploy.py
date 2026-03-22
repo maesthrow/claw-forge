@@ -96,21 +96,25 @@ def switch_agent(agent_name, telegram_user_id):
 
 def _unbind_all_telegram(telegram_user_id):
     """Remove all telegram bindings for a user so main (default) takes over."""
-    # Get list of agents with bindings
+    # Get list of all non-default agents and try to unbind telegram from each
     result = subprocess.run(
-        "openclaw agents list --bindings --json",
+        "openclaw agents list --json",
         shell=True, capture_output=True, text=True, timeout=30
     )
     if result.returncode == 0:
         try:
             import json
             data = json.loads(result.stdout)
-            for agent in data if isinstance(data, list) else data.get("agents", []):
-                agent_id = agent.get("id", "")
-                for binding in agent.get("bindings", []):
-                    if "telegram" in str(binding):
-                        run_cmd(f"openclaw agents unbind --agent {agent_id} --bind telegram:{telegram_user_id}")
-        except (json.JSONDecodeError, KeyError):
+            agents = data if isinstance(data, list) else data.get("agents", [])
+            for agent in agents:
+                agent_id = agent.get("id", "") if isinstance(agent, dict) else ""
+                if agent_id and agent_id != "main":
+                    # Try unbind, ignore errors (agent may not have this binding)
+                    subprocess.run(
+                        f"openclaw agents unbind --agent {agent_id} --bind telegram:{telegram_user_id}",
+                        shell=True, capture_output=True, text=True, timeout=10
+                    )
+        except (json.JSONDecodeError, KeyError, TypeError):
             pass
 
 

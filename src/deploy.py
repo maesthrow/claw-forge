@@ -49,7 +49,7 @@ def register_agent(name, workspace_path):
 def delete_agent(name):
     """Delete agent from OpenClaw and remove workspace."""
     try:
-        run_cmd(f"openclaw agents delete {name} --yes")
+        run_cmd(f"openclaw agents delete {name} --force")
     except RuntimeError:
         pass
 

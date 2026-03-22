@@ -153,7 +153,7 @@ def uninstall():
 
     for agent in BASE_AGENTS:
         print(f"  Removing agent {agent}...")
-        run_cmd(f"openclaw agents delete {agent} --yes")
+        run_cmd(f"openclaw agents delete {agent} --force")
         workspace = os.path.join(WORKSPACES_DIR, agent)
         if os.path.exists(workspace):
             shutil.rmtree(workspace)

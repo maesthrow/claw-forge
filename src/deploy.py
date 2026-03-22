@@ -78,44 +78,20 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
 
 
 def switch_agent(agent_name, telegram_user_id):
-    """Switch Telegram routing to a different agent."""
+    """Switch Telegram routing to a different agent via config set (atomic)."""
     # orchestrator is registered as "main" in OpenClaw
     openclaw_name = "main" if agent_name == "orchestrator" else agent_name
 
     if openclaw_name == "main":
-        # Return to orchestrator: remove all custom bindings, main catches as default
-        _unbind_all_telegram(telegram_user_id)
-        return "Switched to main (default)"
+        # Return to orchestrator: clear all bindings, main catches as default
+        return run_cmd("openclaw config set bindings '[]'")
     else:
-        # Switch to specific agent: first unbind, then bind new
-        _unbind_all_telegram(telegram_user_id)
-        return run_cmd(
-            f"openclaw agents bind --agent {openclaw_name} --bind telegram:{telegram_user_id}"
+        # Switch to specific agent: set binding directly
+        binding = (
+            f'[{{"type":"route","agentId":"{openclaw_name}",'
+            f'"match":{{"channel":"telegram","accountId":"{telegram_user_id}"}}}}]'
         )
-
-
-def _unbind_all_telegram(telegram_user_id):
-    """Remove all telegram bindings for a user so main (default) takes over."""
-    # Get list of all non-default agents and try to unbind telegram from each
-    result = subprocess.run(
-        "openclaw agents list --json",
-        shell=True, capture_output=True, text=True, timeout=30
-    )
-    if result.returncode == 0:
-        try:
-            import json
-            data = json.loads(result.stdout)
-            agents = data if isinstance(data, list) else data.get("agents", [])
-            for agent in agents:
-                agent_id = agent.get("id", "") if isinstance(agent, dict) else ""
-                if agent_id and agent_id != "main":
-                    # Try unbind, ignore errors (agent may not have this binding)
-                    subprocess.run(
-                        f"openclaw agents unbind --agent {agent_id} --bind telegram:{telegram_user_id}",
-                        shell=True, capture_output=True, text=True, timeout=10
-                    )
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
+        return run_cmd(f"openclaw config set bindings '{binding}'")
 
 
 def call_agent(agent_name, message):

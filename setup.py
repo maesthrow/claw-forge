@@ -55,9 +55,17 @@ def install():
         shutil.copy2(src_soul, dst_soul)
 
         run_cmd(f'openclaw agents add {agent} --workspace "{workspace}" --non-interactive')
+
+        # Overwrite OpenClaw default workspace-<name> files
+        default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{agent}")
+        if os.path.exists(default_ws):
+            shutil.copy2(src_soul, os.path.join(default_ws, "SOUL.md"))
+            default_agents = os.path.join(default_ws, "AGENTS.md")
+            if os.path.exists(default_agents):
+                os.remove(default_agents)
         print(f"  done")
 
-    # 2. Orchestrator SOUL.md + AGENTS.md
+    # 2. Architect SOUL.md + AGENTS.md
     step = len(BASE_AGENTS) + 1
     print(f"[{step}/{total_steps}] Configuring architect...")
     src_soul = os.path.join(SCRIPT_DIR, "agents", "architect", "SOUL.md")

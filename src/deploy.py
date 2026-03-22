@@ -43,7 +43,27 @@ def create_agent_workspace(name, soul_md, agents_md=None, skills=None):
 
 def register_agent(name, workspace_path):
     """Register agent in OpenClaw gateway."""
-    return run_cmd(f'openclaw agents add {name} --workspace "{workspace_path}" --non-interactive')
+    result = run_cmd(f'openclaw agents add {name} --workspace "{workspace_path}" --non-interactive')
+
+    # OpenClaw creates a default workspace-<name>/ dir with template files.
+    # Overwrite them with our files to prevent conflicts.
+    openclaw_home = os.path.expanduser("~/.openclaw")
+    default_workspace = os.path.join(openclaw_home, f"workspace-{name}")
+    if os.path.exists(default_workspace):
+        # Copy our SOUL.md over the default
+        our_soul = os.path.join(workspace_path, "SOUL.md")
+        if os.path.exists(our_soul):
+            shutil.copy2(our_soul, os.path.join(default_workspace, "SOUL.md"))
+
+        # Copy our AGENTS.md or remove the default
+        our_agents = os.path.join(workspace_path, "AGENTS.md")
+        default_agents = os.path.join(default_workspace, "AGENTS.md")
+        if os.path.exists(our_agents):
+            shutil.copy2(our_agents, default_agents)
+        elif os.path.exists(default_agents):
+            os.remove(default_agents)
+
+    return result
 
 
 def delete_agent(name):

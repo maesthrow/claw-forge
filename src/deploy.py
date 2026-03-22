@@ -102,6 +102,18 @@ def call_agent(agent_name, message):
     )
 
 
+def send_notification(channel, user_id, message):
+    """Send a notification message to user via OpenClaw."""
+    escaped = message.replace('"', '\\"').replace('\n', '\\n')
+    try:
+        run_cmd(f'openclaw message send --channel {channel} --target {user_id} -m "{escaped}"')
+    except RuntimeError as e:
+        log_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs", "notification_errors.log")
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a") as f:
+            f.write(f"Failed to send to {channel}:{user_id} — {str(e)[:200]}\n")
+
+
 def install_skill_to_architect(skill_name, skill_content):
     """Install a skill into the architect's workspace."""
     skill_dir = os.path.join(OPENCLAW_MAIN_WORKSPACE, "skills", skill_name)

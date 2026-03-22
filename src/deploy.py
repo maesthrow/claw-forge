@@ -79,8 +79,10 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
 
 def switch_agent(agent_name, telegram_user_id):
     """Switch Telegram routing to a different agent."""
+    # orchestrator is registered as "main" in OpenClaw
+    openclaw_name = "main" if agent_name == "orchestrator" else agent_name
     return run_cmd(
-        f"openclaw agents bind --agent {agent_name} --bind telegram:{telegram_user_id}"
+        f"openclaw agents bind --agent {openclaw_name} --bind telegram:{telegram_user_id}"
     )
 
 

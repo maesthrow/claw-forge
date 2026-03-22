@@ -93,7 +93,7 @@ def run_pipeline(task_description):
 - Чёткая роль и экспертиза агента
 - Инструкции по взаимодействию с пользователем
 - Границы компетенций
-- Инструкция: если пользователь пишет "назад", "/back", "вернись" — выполни: uv run /opt/clawforge/src/main.py switch --agent orchestrator
+- Инструкция: если пользователь пишет "назад", "/back", "вернись" — выполни: python3 /opt/clawforge/src/main.py switch --agent orchestrator
 
 Требования к skills (SKILL.md):
 - YAML frontmatter (name, description) + markdown body

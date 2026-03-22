@@ -10,7 +10,7 @@ description: Создание, управление, переключение и
 Когда пользователь описывает задачу и нужно создать агента:
 
 ```bash
-uv run /opt/clawforge/src/main.py create --task "<описание задачи пользователя>"
+python3 /opt/clawforge/src/main.py create --task "<описание задачи пользователя>"
 ```
 
 Скрипт запустит конвейер (аналитик → разработчик → тестировщик → валидатор) и вернёт результат в JSON.
@@ -18,25 +18,25 @@ uv run /opt/clawforge/src/main.py create --task "<описание задачи 
 ## Список агентов
 
 ```bash
-uv run /opt/clawforge/src/main.py list
+python3 /opt/clawforge/src/main.py list
 ```
 
 ## Поиск агента
 
 ```bash
-uv run /opt/clawforge/src/main.py search --query "<поисковый запрос>"
+python3 /opt/clawforge/src/main.py search --query "<поисковый запрос>"
 ```
 
 ## Переключить на агента
 
 ```bash
-uv run /opt/clawforge/src/main.py switch --agent <agent_name>
+python3 /opt/clawforge/src/main.py switch --agent <agent_name>
 ```
 
 ## Вернуться к оркестратору
 
 ```bash
-uv run /opt/clawforge/src/main.py switch --agent orchestrator
+python3 /opt/clawforge/src/main.py switch --agent orchestrator
 ```
 
 ## Удалить агента
@@ -44,5 +44,5 @@ uv run /opt/clawforge/src/main.py switch --agent orchestrator
 ВАЖНО: Перед вызовом этой команды ОБЯЗАТЕЛЬНО запроси подтверждение у пользователя.
 
 ```bash
-uv run /opt/clawforge/src/main.py delete --agent <agent_name>
+python3 /opt/clawforge/src/main.py delete --agent <agent_name>
 ```

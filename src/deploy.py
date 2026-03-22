@@ -79,11 +79,11 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
 
 def switch_agent(agent_name, telegram_user_id):
     """Switch Telegram routing to a different agent via config set (atomic)."""
-    # orchestrator is registered as "main" in OpenClaw
-    openclaw_name = "main" if agent_name == "orchestrator" else agent_name
+    # architect is registered as "main" in OpenClaw
+    openclaw_name = "main" if agent_name == "architect" else agent_name
 
     if openclaw_name == "main":
-        # Return to orchestrator: clear all bindings, main catches as default
+        # Return to architect: clear all bindings, main catches as default
         return run_cmd("openclaw config set bindings '[]'")
     else:
         # Switch to specific agent: set binding directly
@@ -102,8 +102,8 @@ def call_agent(agent_name, message):
     )
 
 
-def install_skill_to_orchestrator(skill_name, skill_content):
-    """Install a skill into the orchestrator's workspace."""
+def install_skill_to_architect(skill_name, skill_content):
+    """Install a skill into the architect's workspace."""
     skill_dir = os.path.join(OPENCLAW_MAIN_WORKSPACE, "skills", skill_name)
     os.makedirs(skill_dir, exist_ok=True)
     with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:

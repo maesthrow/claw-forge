@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ClawForge CLI — orchestration layer for OpenClaw agent management."""
+"""ClawForge CLI — architect layer for OpenClaw agent management."""
 
 import argparse
 import json

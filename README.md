@@ -136,7 +136,7 @@ curl -fsSL https://openclaw.ai/install.sh | bash
 
 # 2. Установить ClawForge
 cd /opt
-git clone <repo> clawforge
+git clone https://github.com/maesthrow/claw-forge.git clawforge
 cd clawforge
 python setup.py
 ```

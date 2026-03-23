@@ -84,6 +84,15 @@ def _get_telegram_user_id():
 def cmd_switch(args):
     telegram_user_id = _get_telegram_user_id()
     deploy.switch_agent(args.agent, telegram_user_id)
+
+    # Trigger greeting from the new agent
+    if args.agent != "architect":
+        try:
+            greeting = deploy.call_agent(args.agent, "Пользователь переключился на тебя. Представься.")
+            deploy.send_notification("telegram", telegram_user_id, greeting)
+        except Exception:
+            pass  # greeting is optional, don't break switch
+
     print(f"Переключено на агента: {args.agent}")
 
 

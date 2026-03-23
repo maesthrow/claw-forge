@@ -86,12 +86,15 @@ def cmd_switch(args):
     deploy.switch_agent(args.agent, telegram_user_id)
 
     # Trigger greeting from the new agent
-    if args.agent != "architect":
-        try:
-            greeting = deploy.call_agent(args.agent, "Пользователь переключился на тебя. Представься.")
-            deploy.send_notification("telegram", telegram_user_id, greeting)
-        except Exception:
-            pass  # greeting is optional, don't break switch
+    openclaw_name = "main" if args.agent == "architect" else args.agent
+    try:
+        greeting = deploy.call_agent(
+            openclaw_name,
+            "Начинается новое взаимодействие. Представься пользователю как при первом сообщении в новой сессии."
+        )
+        deploy.send_notification("telegram", telegram_user_id, greeting)
+    except Exception:
+        pass  # greeting is optional, don't break switch
 
     print(f"Переключено на агента: {args.agent}")
 

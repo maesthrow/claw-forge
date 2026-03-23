@@ -354,20 +354,31 @@ def parse_json_response(response):
     """Extract JSON from LLM response, handling markdown code blocks and extra text."""
     text = response.strip()
 
-    # 1. Try direct parse first (handles clean JSON with backticks inside values)
+    # 1. Try direct parse first (handles clean JSON)
     try:
         return json.loads(text)
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # 2. Try stripping markdown code blocks
+    # 2. Try finding JSON boundaries in original text (handles extra data after JSON,
+    #    and JSON with backticks inside values that would break code block stripping)
+    for start_char, end_char in [('{', '}'), ('[', ']')]:
+        start = text.find(start_char)
+        if start != -1:
+            end = text.rfind(end_char)
+            if end != -1:
+                try:
+                    return json.loads(text[start:end + 1])
+                except json.JSONDecodeError:
+                    continue
+
+    # 3. Try stripping markdown code blocks (for responses wrapped in ```)
     stripped = text
     if "```json" in stripped:
         stripped = stripped.split("```json")[1].split("```")[0]
     elif "```" in stripped:
         stripped = stripped.split("```")[1].split("```")[0]
 
-    # 3. Try to find JSON object/array boundaries
     stripped = stripped.strip()
     for start_char, end_char in [('{', '}'), ('[', ']')]:
         start = stripped.find(start_char)
@@ -379,7 +390,7 @@ def parse_json_response(response):
                 except json.JSONDecodeError:
                     continue
 
-    return json.loads(stripped)
+    return json.loads(text)
 
 
 def call_agent_with_retry(agent_name, prompt, max_retries=2):

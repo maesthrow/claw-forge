@@ -59,16 +59,21 @@ def register_agent(name, workspace_path):
     """Register agent in OpenClaw gateway."""
     result = run_cmd(f"openclaw agents add {shlex.quote(name)} --workspace {shlex.quote(workspace_path)} --non-interactive")
 
-    # OpenClaw creates a default workspace-<name>/ dir with template files.
-    # Remove all defaults and copy our files instead.
+    # openclaw agents add creates default templates in our workspace.
+    # Clean them BEFORE copying to workspace-<name> so only our files propagate.
+    clean_openclaw_defaults(workspace_path)
+
+    # Copy clean files to workspace-<name> (if OpenClaw created it)
     openclaw_home = os.path.expanduser("~/.openclaw")
     default_workspace = os.path.join(openclaw_home, f"workspace-{name}")
     if os.path.exists(default_workspace):
+        # Remove all existing files in workspace-<name>
         for fname in os.listdir(default_workspace):
             fpath = os.path.join(default_workspace, fname)
             if os.path.isfile(fpath):
                 os.remove(fpath)
 
+        # Copy only our clean files
         for fname in os.listdir(workspace_path):
             src = os.path.join(workspace_path, fname)
             if os.path.isfile(src):
@@ -80,9 +85,6 @@ def register_agent(name, workspace_path):
             if os.path.exists(default_skills):
                 shutil.rmtree(default_skills)
             shutil.copytree(our_skills, default_skills)
-
-    # Clean OpenClaw defaults from our workspace
-    clean_openclaw_defaults(workspace_path)
 
     return result
 

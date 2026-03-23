@@ -2,9 +2,65 @@
 
 import json
 import os
+import re
 
 import deploy
 import registry
+
+
+def validate_agent_name(name):
+    """Validate agent name: lowercase letters, digits, underscores only."""
+    if not re.match(r'^[a-z][a-z0-9_]{1,49}$', name):
+        raise ValueError(f"Invalid agent name: '{name}'. Use lowercase letters, digits, underscores. Start with letter. Max 50 chars.")
+
+
+def build_tester_prompt(requirements, artifacts):
+    """Build tester prompt with current artifacts."""
+    return f"""Проверь артефакты агента на соответствие требованиям.
+
+Требования:
+{json.dumps(requirements, ensure_ascii=False, indent=2)}
+
+Артефакты:
+{json.dumps(artifacts, ensure_ascii=False, indent=2)}
+
+Проверь:
+1. SOUL.md описывает все capabilities из требований?
+2. Skills покрывают все needs из требований?
+3. Нет ли противоречий в инструкциях?
+4. Есть ли блок "Правило первого сообщения" с командами /main и /new?
+5. Есть ли блок "Команда возврата" с python3 /opt/clawforge/src/main.py switch --agent architect?
+
+Верни JSON:
+{{
+  "approved": true/false,
+  "issues": ["список проблем если есть"],
+  "fixes": ["предложения по исправлению"]
+}}
+
+Верни ТОЛЬКО JSON."""
+
+
+def build_validator_prompt(requirements, artifacts, test_report):
+    """Build validator prompt with current artifacts."""
+    return f"""Финальная проверка агента перед деплоем.
+
+Требования:
+{json.dumps(requirements, ensure_ascii=False, indent=2)}
+
+Артефакты:
+{json.dumps(artifacts, ensure_ascii=False, indent=2)}
+
+Отчёт тестировщика:
+{json.dumps(test_report, ensure_ascii=False, indent=2)}
+
+Верни JSON:
+{{
+  "approved": true/false,
+  "reason": "причина"
+}}
+
+Верни ТОЛЬКО JSON."""
 
 
 def run_pipeline(task_description):
@@ -39,6 +95,10 @@ def run_pipeline(task_description):
 Верни ТОЛЬКО JSON, без пояснений."""
 
     requirements = call_agent_with_retry("analyst", analyst_prompt)
+
+    # Validate agent name
+    if requirements.get("agent_name"):
+        validate_agent_name(requirements["agent_name"])
 
     # 3. Handle reuse case
     if requirements.get("decision") == "reuse_existing":
@@ -123,32 +183,8 @@ python3 /opt/clawforge/src/main.py switch --agent architect
     max_validator_retries = 1
 
     for validator_attempt in range(max_validator_retries + 1):
-        # Tester
-        tester_prompt = f"""Проверь артефакты агента на соответствие требованиям.
-
-Требования:
-{json.dumps(requirements, ensure_ascii=False, indent=2)}
-
-Артефакты:
-{json.dumps(artifacts, ensure_ascii=False, indent=2)}
-
-Проверь:
-1. SOUL.md описывает все capabilities из требований?
-2. Skills покрывают все needs из требований?
-3. Нет ли противоречий в инструкциях?
-4. Есть ли блок "Правило первого сообщения" с командами /main и /new?
-5. Есть ли блок "Команда возврата" с python3 /opt/clawforge/src/main.py switch --agent architect?
-
-Верни JSON:
-{{
-  "approved": true/false,
-  "issues": ["список проблем если есть"],
-  "fixes": ["предложения по исправлению"]
-}}
-
-Верни ТОЛЬКО JSON."""
-
-        test_report = call_agent_with_retry("tester", tester_prompt)
+        # Tester — uses fresh prompt with current artifacts
+        test_report = call_agent_with_retry("tester", build_tester_prompt(requirements, artifacts))
 
         # Tester reject → developer fix (max retries)
         tester_retries = 0
@@ -165,7 +201,7 @@ python3 /opt/clawforge/src/main.py switch --agent architect
 ВАЖНО: команды /main и /new должны быть сохранены с символом косой черты."""
 
             artifacts = call_agent_with_retry("developer", fix_prompt)
-            test_report = call_agent_with_retry("tester", tester_prompt)
+            test_report = call_agent_with_retry("tester", build_tester_prompt(requirements, artifacts))
             tester_retries += 1
 
         if not test_report.get("approved", False):
@@ -175,27 +211,8 @@ python3 /opt/clawforge/src/main.py switch --agent architect
                 "message": "Не удалось создать агента: тестировщик нашёл неисправимые проблемы."
             }
 
-        # Validator
-        validator_prompt = f"""Финальная проверка агента перед деплоем.
-
-Требования:
-{json.dumps(requirements, ensure_ascii=False, indent=2)}
-
-Артефакты:
-{json.dumps(artifacts, ensure_ascii=False, indent=2)}
-
-Отчёт тестировщика:
-{json.dumps(test_report, ensure_ascii=False, indent=2)}
-
-Верни JSON:
-{{
-  "approved": true/false,
-  "reason": "причина"
-}}
-
-Верни ТОЛЬКО JSON."""
-
-        validation = call_agent_with_retry("validator", validator_prompt)
+        # Validator — uses fresh prompt with current artifacts and test report
+        validation = call_agent_with_retry("validator", build_validator_prompt(requirements, artifacts, test_report))
 
         if validation.get("approved", False):
             break
@@ -231,13 +248,19 @@ python3 /opt/clawforge/src/main.py switch --agent architect
 
 
 def deploy_extension(requirements, artifacts):
-    """Deploy skill/heartbeat extension to an existing agent."""
+    """Deploy skill/heartbeat extension to an existing agent. Updates SOUL.md if provided."""
     target_agent = requirements["extend_agent"]
     agent_name = requirements["agent_name"]
 
+    # Update SOUL.md if provided
+    if artifacts.get("soul_md"):
+        deploy.update_agent_soul(target_agent, artifacts["soul_md"])
+
+    # Add skills
     for skill_name, skill_content in artifacts.get("skills", {}).items():
         deploy.add_skill_to_agent(target_agent, skill_name, skill_content)
 
+    # Add heartbeat if needed
     if requirements.get("needs_heartbeat"):
         telegram_user_id = get_telegram_user_id()
         deploy.add_heartbeat(
@@ -248,16 +271,19 @@ def deploy_extension(requirements, artifacts):
             telegram_user_id=telegram_user_id
         )
 
+    # Update capabilities and description in registry
     existing_agent = registry.get_agent(target_agent)
     if existing_agent:
         old_caps = json.loads(existing_agent["capabilities"])
         new_caps = list(set(old_caps + requirements["capabilities"]))
-        registry.update_agent(target_agent, capabilities=new_caps)
+        registry.update_agent(target_agent, capabilities=new_caps,
+                              description=requirements["description"])
 
+    action_msg = "обновлён" if artifacts.get("soul_md") else "расширен: добавлены новые навыки"
     return {
         "action": "extended",
         "agent_name": target_agent,
-        "message": f"Агент '{target_agent}' расширен: добавлены новые навыки."
+        "message": f"Агент '{target_agent}' {action_msg}."
     }
 
 
@@ -328,25 +354,32 @@ def parse_json_response(response):
     """Extract JSON from LLM response, handling markdown code blocks and extra text."""
     text = response.strip()
 
-    # Try markdown code blocks first
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0]
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0]
+    # 1. Try direct parse first (handles clean JSON with backticks inside values)
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        pass
 
-    # Try to find JSON object/array boundaries
-    text = text.strip()
+    # 2. Try stripping markdown code blocks
+    stripped = text
+    if "```json" in stripped:
+        stripped = stripped.split("```json")[1].split("```")[0]
+    elif "```" in stripped:
+        stripped = stripped.split("```")[1].split("```")[0]
+
+    # 3. Try to find JSON object/array boundaries
+    stripped = stripped.strip()
     for start_char, end_char in [('{', '}'), ('[', ']')]:
-        start = text.find(start_char)
+        start = stripped.find(start_char)
         if start != -1:
-            end = text.rfind(end_char)
+            end = stripped.rfind(end_char)
             if end != -1:
                 try:
-                    return json.loads(text[start:end + 1])
+                    return json.loads(stripped[start:end + 1])
                 except json.JSONDecodeError:
                     continue
 
-    return json.loads(text)
+    return json.loads(stripped)
 
 
 def call_agent_with_retry(agent_name, prompt, max_retries=2):
@@ -396,5 +429,11 @@ def log_pipeline_event(agent_name, prompt, response, status):
 
 
 def get_telegram_user_id():
-    """Get Telegram user ID from environment."""
+    """Get Telegram user ID from config file or environment."""
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".telegram_id")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            tid = f.read().strip()
+            if tid:
+                return tid
     return os.environ.get("CLAWFORGE_TELEGRAM_USER_ID", "541534272")

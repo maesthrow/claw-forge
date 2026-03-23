@@ -357,7 +357,15 @@ def parse_json_response(response):
     # 1. Try direct parse first (handles clean JSON)
     try:
         return json.loads(text)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError as e:
+        # "Extra data" = valid JSON + garbage after it (extra }, trailing text)
+        # Python tells us exactly where the valid JSON ends — use that position
+        if e.msg == 'Extra data' and e.pos > 0:
+            try:
+                return json.loads(text[:e.pos])
+            except (json.JSONDecodeError, ValueError):
+                pass
+    except ValueError:
         pass
 
     # 2. Try finding JSON boundaries in original text (handles extra data after JSON,

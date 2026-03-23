@@ -84,9 +84,14 @@ def _get_telegram_user_id():
 def cmd_switch(args):
     telegram_user_id = _get_telegram_user_id()
     deploy.switch_agent(args.agent, telegram_user_id)
+    print(f"Переключено на агента: {args.agent}")
 
-    # Trigger greeting from the new agent
+    # Send greeting in background (call_agent is slow, parent process may timeout)
     openclaw_name = "main" if args.agent == "architect" else args.agent
+    pid = os.fork()
+    if pid > 0:
+        return  # parent returns immediately
+    # child: generate and send greeting
     try:
         greeting = deploy.call_agent(
             openclaw_name,
@@ -94,9 +99,9 @@ def cmd_switch(args):
         )
         deploy.send_notification("telegram", telegram_user_id, greeting)
     except Exception:
-        pass  # greeting is optional, don't break switch
-
-    print(f"Переключено на агента: {args.agent}")
+        pass
+    finally:
+        os._exit(0)
 
 
 def cmd_delete(args):

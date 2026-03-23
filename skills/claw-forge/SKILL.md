@@ -44,7 +44,7 @@ python3 /opt/clawforge/src/main.py switch --agent architect
 Когда пользователь описывает задачу и нужно создать агента:
 
 ```bash
-python3 /opt/clawforge/src/main.py create --task "<описание задачи пользователя>" --notify telegram:541534272
+python3 /opt/clawforge/src/main.py create --task "<описание задачи пользователя>" --notify telegram:{{TELEGRAM_USER_ID}}
 ```
 
 Скрипт запустится в фоне. Результат придёт пользователю в чат автоматически.

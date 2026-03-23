@@ -250,24 +250,51 @@ def uninstall():
     unprotect_file(os.path.join(MAIN_WORKSPACE, "AGENTS.md"))
     unprotect_file(os.path.join(MAIN_WORKSPACE, "skills", "claw-forge", "SKILL.md"))
 
+    # 1. Remove created agents (from registry)
+    sys.path.insert(0, os.path.join(SCRIPT_DIR, "src"))
+    import registry
+    registry.init_db()
+    for agent in registry.list_agents():
+        name = agent["name"]
+        print(f"  Removing created agent {name}...")
+        run_cmd(f"openclaw agents delete {name} --force")
+        wp = agent.get("workspace_path")
+        if wp and os.path.exists(wp):
+            shutil.rmtree(wp)
+        agent_state = os.path.join(OPENCLAW_HOME, "agents", name)
+        if os.path.exists(agent_state):
+            shutil.rmtree(agent_state)
+        print(f"  done")
+
+    # 2. Remove base agents + their state dirs
     for agent in BASE_AGENTS:
         print(f"  Removing agent {agent}...")
         run_cmd(f"openclaw agents delete {agent} --force")
         workspace = os.path.join(WORKSPACES_DIR, agent)
         if os.path.exists(workspace):
             shutil.rmtree(workspace)
+        agent_state = os.path.join(OPENCLAW_HOME, "agents", agent)
+        if os.path.exists(agent_state):
+            shutil.rmtree(agent_state)
         print(f"  done")
 
-    agents_md = os.path.join(MAIN_WORKSPACE, "AGENTS.md")
-    if os.path.exists(agents_md):
-        os.remove(agents_md)
-        print("  architect AGENTS.md removed")
+    # 3. Clean architect files from main workspace
+    for fname in ["SOUL.md", "AGENTS.md"]:
+        fpath = os.path.join(MAIN_WORKSPACE, fname)
+        if os.path.exists(fpath):
+            os.remove(fpath)
+            print(f"  architect {fname} removed")
 
     skill_dir = os.path.join(MAIN_WORKSPACE, "skills", "claw-forge")
     if os.path.exists(skill_dir):
         shutil.rmtree(skill_dir)
         print("  skill claw-forge removed")
 
+    # 4. Clear bindings
+    run_cmd("openclaw config set bindings '[]'")
+    print("  bindings cleared")
+
+    # 5. Registry + config
     db_path = os.path.join(SCRIPT_DIR, "clawforge.db")
     if os.path.exists(db_path):
         os.remove(db_path)
@@ -276,6 +303,12 @@ def uninstall():
     if os.path.exists(TELEGRAM_ID_FILE):
         os.remove(TELEGRAM_ID_FILE)
         print("  telegram ID config removed")
+
+    # 6. Logs
+    log_dir = os.path.join(SCRIPT_DIR, "logs")
+    if os.path.exists(log_dir):
+        shutil.rmtree(log_dir)
+        print("  logs removed")
 
     print("\n=== ClawForge uninstalled. OpenClaw is clean. ===")
 

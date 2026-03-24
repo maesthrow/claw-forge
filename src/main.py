@@ -88,7 +88,18 @@ def cmd_bind(args):
     if not agent:
         print(f"Агент '{args.agent}' не найден в реестре.")
         sys.exit(1)
-    deploy.bind_agent_to_bot(args.agent, args.token, _get_telegram_user_id())
+
+    telegram_user_id = _get_telegram_user_id()
+    deploy.bind_agent_to_bot(args.agent, args.token, telegram_user_id)
+
+    # Gateway hot-reloads after config change, which can interrupt
+    # the architect's response delivery. Send explicit notification.
+    import time
+    time.sleep(2)
+    deploy.send_notification(
+        "telegram", telegram_user_id,
+        f"Бот привязан к агенту {args.agent}. Можешь писать ему напрямую."
+    )
     print(f"Бот привязан к агенту: {args.agent}")
 
 

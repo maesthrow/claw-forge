@@ -1,5 +1,6 @@
 """ClawForge deploy module — OpenClaw agent management via CLI."""
 
+import json
 import os
 import shlex
 import shutil
@@ -8,8 +9,6 @@ import subprocess
 
 OPENCLAW_WORKSPACES = os.environ.get("CLAWFORGE_WORKSPACES", "/root/.openclaw/workspaces")
 OPENCLAW_MAIN_WORKSPACE = os.environ.get("CLAWFORGE_MAIN_WORKSPACE", "/root/.openclaw/workspace")
-
-OPENCLAW_DEFAULTS = ["BOOTSTRAP.md", "IDENTITY.md", "USER.md", "TOOLS.md", "HEARTBEAT.md"]
 
 
 def run_cmd(cmd):
@@ -20,19 +19,8 @@ def run_cmd(cmd):
     return result.stdout.strip()
 
 
-def clean_openclaw_defaults(workspace_path, keep_agents_md=False):
-    """Remove OpenClaw default template files from workspace."""
-    to_remove = list(OPENCLAW_DEFAULTS)
-    if not keep_agents_md:
-        to_remove.append("AGENTS.md")
-    for fname in to_remove:
-        fpath = os.path.join(workspace_path, fname)
-        if os.path.exists(fpath):
-            os.remove(fpath)
-
-
-def create_agent_workspace(name, soul_md, agents_md=None, skills=None):
-    """Create workspace directory with SOUL.md and optional skills."""
+def create_agent_workspace(name, soul_md, agents_md=None, identity_md=None, skills=None):
+    """Create workspace directory with SOUL.md, AGENTS.md, IDENTITY.md and optional skills."""
     workspace = os.path.join(OPENCLAW_WORKSPACES, name)
     os.makedirs(workspace, exist_ok=True)
 
@@ -42,6 +30,10 @@ def create_agent_workspace(name, soul_md, agents_md=None, skills=None):
     if agents_md:
         with open(os.path.join(workspace, "AGENTS.md"), "w", encoding="utf-8") as f:
             f.write(agents_md)
+
+    if identity_md:
+        with open(os.path.join(workspace, "IDENTITY.md"), "w", encoding="utf-8") as f:
+            f.write(identity_md)
 
     if skills:
         skills_dir = os.path.join(workspace, "skills")
@@ -59,21 +51,11 @@ def register_agent(name, workspace_path):
     """Register agent in OpenClaw gateway."""
     result = run_cmd(f"openclaw agents add {shlex.quote(name)} --workspace {shlex.quote(workspace_path)} --non-interactive")
 
-    # openclaw agents add creates default templates in our workspace.
-    # Clean them BEFORE copying to workspace-<name> so only our files propagate.
-    clean_openclaw_defaults(workspace_path)
-
-    # Copy clean files to workspace-<name> (if OpenClaw created it)
+    # Sync our workspace files to workspace-<name> (if OpenClaw created it)
     openclaw_home = os.path.expanduser("~/.openclaw")
     default_workspace = os.path.join(openclaw_home, f"workspace-{name}")
     if os.path.exists(default_workspace):
-        # Remove all existing files in workspace-<name>
-        for fname in os.listdir(default_workspace):
-            fpath = os.path.join(default_workspace, fname)
-            if os.path.isfile(fpath):
-                os.remove(fpath)
-
-        # Copy only our clean files
+        # Copy our files over defaults (don't delete defaults we didn't override)
         for fname in os.listdir(workspace_path):
             src = os.path.join(workspace_path, fname)
             if os.path.isfile(src):
@@ -95,6 +77,9 @@ def delete_agent(name):
         run_cmd(f"openclaw agents delete {shlex.quote(name)} --force")
     except RuntimeError:
         pass
+
+    # Remove bot binding
+    unbind_agent_bot(name)
 
     # Remove our workspace
     workspace = os.path.join(OPENCLAW_WORKSPACES, name)
@@ -141,20 +126,6 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
     )
 
 
-def switch_agent(agent_name, telegram_user_id):
-    """Switch Telegram routing to a different agent via agents bind."""
-    openclaw_name = "main" if agent_name == "architect" else agent_name
-
-    # Clear existing routing
-    run_cmd("openclaw config set bindings '[]'")
-
-    # Bind target agent — sets correct accountId in sessions for /new
-    run_cmd(
-        f"openclaw agents bind --agent {shlex.quote(openclaw_name)} "
-        f"--bind telegram:{shlex.quote(telegram_user_id)}"
-    )
-
-
 def call_agent(agent_name, message):
     """Send a message to an agent and get the response."""
     return run_cmd(
@@ -183,3 +154,63 @@ def install_skill_to_architect(skill_name, skill_content):
     os.makedirs(skill_dir, exist_ok=True)
     with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
         f.write(skill_content)
+
+
+def bind_agent_to_bot(agent_name, bot_token, telegram_user_id):
+    """Bind a Telegram bot to an agent via multi-account config.
+
+    Adds a new account to channels.telegram.accounts and a static
+    binding in the bindings array. Gateway hot-reloads on config change.
+    """
+    openclaw_home = os.path.expanduser("~/.openclaw")
+    config_path = os.path.join(openclaw_home, "openclaw.json")
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+
+    # Add telegram account
+    accounts = config.setdefault("channels", {}).setdefault("telegram", {}).setdefault("accounts", {})
+    accounts[agent_name] = {
+        "botToken": bot_token,
+        "dmPolicy": "pairing"
+    }
+
+    # Add static binding
+    bindings = config.setdefault("bindings", [])
+    # Remove existing binding for this agent if any
+    bindings = [b for b in bindings if b.get("agentId") != agent_name]
+    bindings.append({
+        "type": "route",
+        "agentId": agent_name,
+        "match": {
+            "channel": "telegram",
+            "accountId": agent_name
+        }
+    })
+    config["bindings"] = bindings
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+
+def unbind_agent_bot(agent_name):
+    """Remove a Telegram bot binding for an agent."""
+    openclaw_home = os.path.expanduser("~/.openclaw")
+    config_path = os.path.join(openclaw_home, "openclaw.json")
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+
+        # Remove telegram account
+        accounts = config.get("channels", {}).get("telegram", {}).get("accounts", {})
+        accounts.pop(agent_name, None)
+
+        # Remove binding
+        bindings = config.get("bindings", [])
+        config["bindings"] = [b for b in bindings if b.get("agentId") != agent_name]
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+    except (OSError, json.JSONDecodeError):
+        pass

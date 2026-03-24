@@ -30,11 +30,11 @@ def cmd_create(args):
             result = orchestration.run_pipeline(args.task)
             msg = result.get("message", "Конвейер завершён.")
             if result.get("action") == "created":
-                msg += f"\nИспользуй /set {result['agent_name']} чтобы переключиться."
+                msg += f"\nАгент {result['agent_name']} создан. Чтобы общаться с ним напрямую — создай бота в @BotFather и пришли мне токен."
             elif result.get("action") == "extended":
                 msg += f"\nАгент {result['agent_name']} расширен."
             elif result.get("action") == "reuse":
-                msg += f"\nИспользуй /set {result['agent_name']} чтобы переключиться."
+                msg += f"\nДля этой задачи подходит агент {result['agent_name']}."
             deploy.send_notification(channel, user_id, msg)
         except Exception as e:
             deploy.send_notification(channel, user_id, f"Ошибка при создании агента: {str(e)[:300]}")
@@ -48,6 +48,7 @@ def cmd_create(args):
 
 def cmd_list(args):
     registry.init_db()
+    registry.sync_with_openclaw()
     agents = registry.list_agents()
     if not agents:
         print("Реестр пуст. Агенты ещё не создавались.")
@@ -81,27 +82,14 @@ def _get_telegram_user_id():
     return os.environ.get("CLAWFORGE_TELEGRAM_USER_ID", "541534272")
 
 
-def cmd_switch(args):
-    telegram_user_id = _get_telegram_user_id()
-    deploy.switch_agent(args.agent, telegram_user_id)
-    print(f"Переключено на агента: {args.agent}")
-
-    # Send greeting in background (call_agent is slow, parent process may timeout)
-    openclaw_name = "main" if args.agent == "architect" else args.agent
-    pid = os.fork()
-    if pid > 0:
-        return  # parent returns immediately
-    # child: generate and send greeting
-    try:
-        greeting = deploy.call_agent(
-            openclaw_name,
-            "Начинается новое взаимодействие. Представься пользователю как при первом сообщении в новой сессии."
-        )
-        deploy.send_notification("telegram", telegram_user_id, greeting)
-    except Exception:
-        pass
-    finally:
-        os._exit(0)
+def cmd_bind(args):
+    registry.init_db()
+    agent = registry.get_agent(args.agent)
+    if not agent:
+        print(f"Агент '{args.agent}' не найден в реестре.")
+        sys.exit(1)
+    deploy.bind_agent_to_bot(args.agent, args.token, _get_telegram_user_id())
+    print(f"Бот привязан к агенту: {args.agent}")
 
 
 def cmd_delete(args):
@@ -132,9 +120,10 @@ def main():
     p_search.add_argument("--query", required=True, help="Search query")
     p_search.set_defaults(func=cmd_search)
 
-    p_switch = subparsers.add_parser("switch", help="Switch Telegram to a different agent")
-    p_switch.add_argument("--agent", required=True, help="Agent name")
-    p_switch.set_defaults(func=cmd_switch)
+    p_bind = subparsers.add_parser("bind", help="Bind a Telegram bot to an agent")
+    p_bind.add_argument("--agent", required=True, help="Agent name")
+    p_bind.add_argument("--token", required=True, help="Telegram bot token from BotFather")
+    p_bind.set_defaults(func=cmd_bind)
 
     p_delete = subparsers.add_parser("delete", help="Delete an agent")
     p_delete.add_argument("--agent", required=True, help="Agent name")

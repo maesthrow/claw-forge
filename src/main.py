@@ -30,7 +30,7 @@ def cmd_create(args):
             result = orchestration.run_pipeline(args.task)
             msg = result.get("message", "Конвейер завершён.")
             if result.get("action") == "created":
-                msg += f"\nАгент {result['agent_name']} создан. Чтобы общаться с ним напрямую — создай бота в @BotFather и пришли мне токен."
+                msg += f"\nЕсли есть токен Telegram-бота — пришли его чтобы привязать."
             elif result.get("action") == "extended":
                 msg += f"\nАгент {result['agent_name']} расширен."
             elif result.get("action") == "reuse":

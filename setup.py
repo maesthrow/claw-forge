@@ -238,11 +238,13 @@ def uninstall():
     # 1. Remove created agents (from registry)
     sys.path.insert(0, os.path.join(SCRIPT_DIR, "src"))
     import registry
+    import deploy as deploy_mod
     registry.init_db()
     for agent in registry.list_agents():
         name = agent["name"]
         print(f"  Removing created agent {name}...")
         run_cmd(f"openclaw agents delete {name} --force")
+        deploy_mod.unbind_agent_bot(name)
         wp = agent.get("workspace_path")
         if wp and os.path.exists(wp):
             shutil.rmtree(wp)

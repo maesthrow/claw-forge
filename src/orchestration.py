@@ -28,8 +28,9 @@ def build_tester_prompt(requirements, artifacts):
 1. SOUL.md описывает все capabilities из требований?
 2. Skills покрывают все needs из требований?
 3. Нет ли противоречий в инструкциях?
-4. Есть ли блок "Правило первого сообщения" с командами /main и /new?
-5. Есть ли блок "Команда возврата" с python3 /opt/clawforge/src/main.py switch --agent architect?
+4. Есть ли AGENTS.md с правилами workspace для агента?
+5. Есть ли IDENTITY.md с именем, описанием и эмодзи агента?
+6. Агент автономен — нет команд переключения (/main, /set, switch)?
 
 Верни JSON:
 {{
@@ -142,7 +143,8 @@ def run_pipeline(task_description):
 Сгенерируй конфигурацию OpenClaw-агента. Верни JSON:
 {{
   "soul_md": "полный текст SOUL.md",
-  "agents_md": "полный текст AGENTS.md или null",
+  "agents_md": "полный текст AGENTS.md",
+  "identity_md": "полный текст IDENTITY.md",
   "skills": {{
     "skill-name": "полный текст SKILL.md для каждого навыка"
   }}
@@ -152,23 +154,23 @@ def run_pipeline(task_description):
 - Чёткая роль и экспертиза агента
 - Инструкции по взаимодействию с пользователем
 - Границы компетенций
+- Язык общения — русский
+- При первом сообщении — кратко представиться
+- Агент ПОЛНОСТЬЮ автономный, работает через своего Telegram-бота
+- НЕ добавляй команды /main, /set, /back или переключение на других агентов
+- НЕ добавляй вызовы python3 или switch
 
-КРИТИЧЕСКИ ВАЖНО — в SOUL.md обязательно включи ДВА блока дословно:
+Требования к AGENTS.md:
+- Стартовый протокол: при начале сессии прочитай SOUL.md
+- Правила workspace агента
+- Стиль общения и формат ответов
+- Границы: что агент НЕ должен делать
 
-Блок 1 (правило первого сообщения):
-## Правило первого сообщения
-При первом сообщении в сессии ВСЕГДА:
-1. Представься — кто ты и что умеешь
-2. Покажи команды на отдельных строках:
-   /main — вернуться к архитектору
-   /new — новая сессия
-
-Блок 2 (команда возврата):
-## Команда возврата
-Если пользователь пишет /main или «назад» или «вернись» — выполни команду:
-python3 /opt/clawforge/src/main.py switch --agent architect
-
-ВАЖНО: символы косой черты в командах /main и /new должны быть сохранены как есть. Не экранируй их, не удаляй, не заменяй.
+Требования к IDENTITY.md:
+- name: имя агента на русском
+- description: одно предложение о роли
+- emoji: подходящий эмодзи
+- vibe: стиль общения (sharp/warm/calm/etc)
 
 Требования к skills (SKILL.md):
 - YAML frontmatter (name, description) + markdown body
@@ -198,7 +200,7 @@ python3 /opt/clawforge/src/main.py switch --agent architect
 {json.dumps(artifacts, ensure_ascii=False, indent=2)}
 
 Исправь и верни обновлённый JSON в том же формате.
-ВАЖНО: команды /main и /new должны быть сохранены с символом косой черты."""
+ВАЖНО: агент должен быть автономным, без команд переключения."""
 
             artifacts = call_agent_with_retry("developer", fix_prompt)
             test_report = call_agent_with_retry("tester", build_tester_prompt(requirements, artifacts))
@@ -227,7 +229,7 @@ python3 /opt/clawforge/src/main.py switch --agent architect
 {json.dumps(artifacts, ensure_ascii=False, indent=2)}
 
 Исправь причину отказа и верни обновлённый JSON в том же формате.
-ВАЖНО: команды /main и /new должны быть сохранены с символом косой черты."""
+ВАЖНО: агент должен быть автономным, без команд переключения."""
 
             artifacts = call_agent_with_retry("developer", fix_prompt)
             continue
@@ -295,6 +297,7 @@ def deploy_new_agent(requirements, artifacts):
         name=agent_name,
         soul_md=artifacts["soul_md"],
         agents_md=artifacts.get("agents_md"),
+        identity_md=artifacts.get("identity_md"),
         skills=artifacts.get("skills", {})
     )
     deploy.register_agent(agent_name, workspace)

@@ -78,3 +78,28 @@ def search_agents(query):
             (f"%{query}%", f"%{query}%")
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def sync_with_openclaw():
+    """Remove registry entries for agents that no longer exist in OpenClaw."""
+    import subprocess
+    import re
+    try:
+        result = subprocess.run(
+            "openclaw agents list --json",
+            shell=True, capture_output=True, text=True, timeout=30
+        )
+        if result.returncode != 0:
+            return
+
+        # Extract agent IDs from output
+        openclaw_ids = set(re.findall(r'"id"\s*:\s*"([^"]+)"', result.stdout))
+        # Only check agents that ARE in our registry
+        with get_connection() as conn:
+            rows = conn.execute("SELECT name FROM agents").fetchall()
+            for row in rows:
+                name = row["name"]
+                if name not in openclaw_ids:
+                    conn.execute("DELETE FROM agents WHERE name = ?", (name,))
+    except (subprocess.TimeoutExpired, Exception):
+        pass  # best-effort sync

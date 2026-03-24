@@ -109,11 +109,17 @@ def install():
 
         run_cmd(f'openclaw agents add {agent} --workspace "{workspace}" --non-interactive')
 
-        # Sync our files to workspace-<name> (copy over defaults, don't delete)
+        # openclaw agents add overwrites our files with defaults.
+        # Re-copy our files over the defaults in both locations.
+        for fname in os.listdir(src_dir):
+            src = os.path.join(src_dir, fname)
+            if os.path.isfile(src):
+                shutil.copy2(src, os.path.join(workspace, fname))
+
         default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{agent}")
         if os.path.exists(default_ws):
-            for fname in os.listdir(workspace):
-                src = os.path.join(workspace, fname)
+            for fname in os.listdir(src_dir):
+                src = os.path.join(src_dir, fname)
                 if os.path.isfile(src):
                     shutil.copy2(src, os.path.join(default_ws, fname))
         print(f"  done")

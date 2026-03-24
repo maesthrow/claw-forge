@@ -49,17 +49,28 @@ def create_agent_workspace(name, soul_md, agents_md=None, identity_md=None, skil
 
 def register_agent(name, workspace_path):
     """Register agent in OpenClaw gateway."""
+    # Save our files before openclaw agents add (it overwrites with defaults)
+    our_files = {}
+    for fname in os.listdir(workspace_path):
+        fpath = os.path.join(workspace_path, fname)
+        if os.path.isfile(fpath):
+            with open(fpath, "r", encoding="utf-8") as f:
+                our_files[fname] = f.read()
+
     result = run_cmd(f"openclaw agents add {shlex.quote(name)} --workspace {shlex.quote(workspace_path)} --non-interactive")
 
-    # Sync our workspace files to workspace-<name> (if OpenClaw created it)
+    # Restore our files over OpenClaw defaults
+    for fname, content in our_files.items():
+        with open(os.path.join(workspace_path, fname), "w", encoding="utf-8") as f:
+            f.write(content)
+
+    # Sync to workspace-<name> (if OpenClaw created it)
     openclaw_home = os.path.expanduser("~/.openclaw")
     default_workspace = os.path.join(openclaw_home, f"workspace-{name}")
     if os.path.exists(default_workspace):
-        # Copy our files over defaults (don't delete defaults we didn't override)
-        for fname in os.listdir(workspace_path):
-            src = os.path.join(workspace_path, fname)
-            if os.path.isfile(src):
-                shutil.copy2(src, os.path.join(default_workspace, fname))
+        for fname, content in our_files.items():
+            with open(os.path.join(default_workspace, fname), "w", encoding="utf-8") as f:
+                f.write(content)
 
         our_skills = os.path.join(workspace_path, "skills")
         default_skills = os.path.join(default_workspace, "skills")

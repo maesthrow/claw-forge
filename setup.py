@@ -16,8 +16,6 @@ TELEGRAM_ID_FILE = os.path.join(SCRIPT_DIR, ".telegram_id")
 
 BASE_AGENTS = ["analyst", "developer", "tester", "validator"]
 
-OPENCLAW_DEFAULTS = ["BOOTSTRAP.md", "IDENTITY.md", "USER.md", "TOOLS.md", "HEARTBEAT.md"]
-
 
 def run_cmd(cmd):
     print(f"  > {cmd}")
@@ -37,18 +35,6 @@ def unprotect_file(path):
     """Restore file to writable (chmod 644)."""
     if os.path.exists(path):
         os.chmod(path, 0o644)
-
-
-def clean_workspace_defaults(workspace_path, keep_agents_md=False):
-    """Remove OpenClaw default template files from workspace."""
-    to_remove = list(OPENCLAW_DEFAULTS)
-    if not keep_agents_md:
-        to_remove.append("AGENTS.md")
-    for fname in to_remove:
-        fpath = os.path.join(workspace_path, fname)
-        if os.path.exists(fpath):
-            os.remove(fpath)
-            print(f"    removed {fname}")
 
 
 def detect_telegram_id():
@@ -114,39 +100,33 @@ def install():
         workspace = os.path.join(WORKSPACES_DIR, agent)
         os.makedirs(workspace, exist_ok=True)
 
-        src_soul = os.path.join(SCRIPT_DIR, "agents", agent, "SOUL.md")
-        dst_soul = os.path.join(workspace, "SOUL.md")
-        shutil.copy2(src_soul, dst_soul)
+        # Copy our agent files to workspace
+        src_dir = os.path.join(SCRIPT_DIR, "agents", agent)
+        for fname in os.listdir(src_dir):
+            src = os.path.join(src_dir, fname)
+            if os.path.isfile(src):
+                shutil.copy2(src, os.path.join(workspace, fname))
 
         run_cmd(f'openclaw agents add {agent} --workspace "{workspace}" --non-interactive')
 
-        # Clean OpenClaw defaults from workspace
-        clean_workspace_defaults(workspace, keep_agents_md=False)
-
-        # Clean workspace-<name> if exists
+        # Sync our files to workspace-<name> (copy over defaults, don't delete)
         default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{agent}")
         if os.path.exists(default_ws):
-            for fname in os.listdir(default_ws):
-                fpath = os.path.join(default_ws, fname)
-                if os.path.isfile(fpath):
-                    os.remove(fpath)
-            shutil.copy2(src_soul, os.path.join(default_ws, "SOUL.md"))
+            for fname in os.listdir(workspace):
+                src = os.path.join(workspace, fname)
+                if os.path.isfile(src):
+                    shutil.copy2(src, os.path.join(default_ws, fname))
         print(f"  done")
 
-    # 2. Architect SOUL.md + AGENTS.md
+    # 2. Architect SOUL.md + AGENTS.md + IDENTITY.md
     step = len(BASE_AGENTS) + 1
     print(f"[{step}/{total_steps}] Configuring architect...")
 
-    clean_workspace_defaults(MAIN_WORKSPACE, keep_agents_md=True)
-
-    src_soul = os.path.join(SCRIPT_DIR, "agents", "architect", "SOUL.md")
-    dst_soul = os.path.join(MAIN_WORKSPACE, "SOUL.md")
-    shutil.copy2(src_soul, dst_soul)
-
-    src_agents = os.path.join(SCRIPT_DIR, "agents", "architect", "AGENTS.md")
-    dst_agents = os.path.join(MAIN_WORKSPACE, "AGENTS.md")
-    if os.path.exists(src_agents):
-        shutil.copy2(src_agents, dst_agents)
+    src_dir = os.path.join(SCRIPT_DIR, "agents", "architect")
+    for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
+        src = os.path.join(src_dir, fname)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(MAIN_WORKSPACE, fname))
     print("  done")
 
     # 3. claw-forge skill
@@ -172,6 +152,7 @@ def install():
     print(f"[{step}/{total_steps}] Protecting architect config files...")
     protect_file(os.path.join(MAIN_WORKSPACE, "SOUL.md"))
     protect_file(os.path.join(MAIN_WORKSPACE, "AGENTS.md"))
+    protect_file(os.path.join(MAIN_WORKSPACE, "IDENTITY.md"))
     protect_file(os.path.join(MAIN_WORKSPACE, "skills", "claw-forge", "SKILL.md"))
     print("  done")
 
@@ -197,32 +178,34 @@ def update():
     # Unprotect before updating
     unprotect_file(os.path.join(MAIN_WORKSPACE, "SOUL.md"))
     unprotect_file(os.path.join(MAIN_WORKSPACE, "AGENTS.md"))
+    unprotect_file(os.path.join(MAIN_WORKSPACE, "IDENTITY.md"))
     unprotect_file(os.path.join(MAIN_WORKSPACE, "skills", "claw-forge", "SKILL.md"))
 
     # Update base agents
     for agent in BASE_AGENTS:
         workspace = os.path.join(WORKSPACES_DIR, agent)
-        src_soul = os.path.join(SCRIPT_DIR, "agents", agent, "SOUL.md")
-        dst_soul = os.path.join(workspace, "SOUL.md")
         if os.path.exists(workspace):
-            shutil.copy2(src_soul, dst_soul)
-            clean_workspace_defaults(workspace, keep_agents_md=False)
+            src_dir = os.path.join(SCRIPT_DIR, "agents", agent)
+            for fname in os.listdir(src_dir):
+                src = os.path.join(src_dir, fname)
+                if os.path.isfile(src):
+                    shutil.copy2(src, os.path.join(workspace, fname))
+            # Sync to workspace-<name>
+            default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{agent}")
+            if os.path.exists(default_ws):
+                for fname in os.listdir(workspace):
+                    src = os.path.join(workspace, fname)
+                    if os.path.isfile(src):
+                        shutil.copy2(src, os.path.join(default_ws, fname))
             print(f"  {agent} updated")
 
     # Update architect
-    src_soul = os.path.join(SCRIPT_DIR, "agents", "architect", "SOUL.md")
-    dst_soul = os.path.join(MAIN_WORKSPACE, "SOUL.md")
-    shutil.copy2(src_soul, dst_soul)
-    print("  architect SOUL.md updated")
-
-    src_agents = os.path.join(SCRIPT_DIR, "agents", "architect", "AGENTS.md")
-    dst_agents = os.path.join(MAIN_WORKSPACE, "AGENTS.md")
-    if os.path.exists(src_agents):
-        shutil.copy2(src_agents, dst_agents)
-    print("  architect AGENTS.md updated")
-
-    # Clean defaults from main workspace
-    clean_workspace_defaults(MAIN_WORKSPACE, keep_agents_md=True)
+    src_dir = os.path.join(SCRIPT_DIR, "agents", "architect")
+    for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
+        src = os.path.join(src_dir, fname)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(MAIN_WORKSPACE, fname))
+    print("  architect updated")
 
     # Update skill with Telegram ID
     skill_dir = os.path.join(MAIN_WORKSPACE, "skills", "claw-forge")
@@ -235,6 +218,7 @@ def update():
     # Re-protect after updating
     protect_file(os.path.join(MAIN_WORKSPACE, "SOUL.md"))
     protect_file(os.path.join(MAIN_WORKSPACE, "AGENTS.md"))
+    protect_file(os.path.join(MAIN_WORKSPACE, "IDENTITY.md"))
     protect_file(os.path.join(MAIN_WORKSPACE, "skills", "claw-forge", "SKILL.md"))
 
     print("\n=== Update complete ===")
@@ -248,6 +232,7 @@ def uninstall():
     # Unprotect architect files before removal
     unprotect_file(os.path.join(MAIN_WORKSPACE, "SOUL.md"))
     unprotect_file(os.path.join(MAIN_WORKSPACE, "AGENTS.md"))
+    unprotect_file(os.path.join(MAIN_WORKSPACE, "IDENTITY.md"))
     unprotect_file(os.path.join(MAIN_WORKSPACE, "skills", "claw-forge", "SKILL.md"))
 
     # 1. Remove created agents (from registry)
@@ -279,7 +264,7 @@ def uninstall():
         print(f"  done")
 
     # 3. Clean architect files from main workspace
-    for fname in ["SOUL.md", "AGENTS.md"]:
+    for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
         fpath = os.path.join(MAIN_WORKSPACE, fname)
         if os.path.exists(fpath):
             os.remove(fpath)
@@ -290,11 +275,7 @@ def uninstall():
         shutil.rmtree(skill_dir)
         print("  skill claw-forge removed")
 
-    # 4. Clear bindings
-    run_cmd("openclaw config set bindings '[]'")
-    print("  bindings cleared")
-
-    # 5. Registry + config
+    # 4. Registry + config
     db_path = os.path.join(SCRIPT_DIR, "clawforge.db")
     if os.path.exists(db_path):
         os.remove(db_path)
@@ -304,7 +285,7 @@ def uninstall():
         os.remove(TELEGRAM_ID_FILE)
         print("  telegram ID config removed")
 
-    # 6. Logs
+    # 5. Logs
     log_dir = os.path.join(SCRIPT_DIR, "logs")
     if os.path.exists(log_dir):
         shutil.rmtree(log_dir)

@@ -193,7 +193,7 @@ def run_pipeline(task_description):
     artifacts = call_agent_with_retry("developer", developer_prompt)
 
     # 6. Tester + Validator cycle with retry
-    max_tester_retries = 2
+    max_tester_retries = 3
     max_validator_retries = 1
 
     for validator_attempt in range(max_validator_retries + 1):

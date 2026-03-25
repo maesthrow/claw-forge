@@ -193,7 +193,7 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
     data["jobs"].append({
         "id": str(uuid.uuid4()),
         "name": name,
-        "enabled": True,
+        "enabled": False,  # Agent enables it on first /start subscriber
         "agentId": agent_name,
         "sessionTarget": "isolated",
         "wakeMode": "now",

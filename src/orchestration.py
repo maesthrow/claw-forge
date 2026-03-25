@@ -179,6 +179,15 @@ def run_pipeline(task_description):
 - YAML frontmatter (name, description) + markdown body
 - Описание конкретное и полезное
 
+Правила для агентов с heartbeat/cron (если needs_heartbeat=true):
+- Workspace агента: /root/.openclaw/workspaces/{requirements.get('agent_name', '<agent_name>')}/
+- Пути к любым файлам агента (данные, состояние) ВСЕГДА абсолютные от workspace
+- Токен Telegram-бота НЕ через env-переменную — он хранится в openclaw.json, агент не должен его читать или использовать напрямую
+- Ответ на команду пользователя (/start, /stop и т.д.) — через стандартный текстовый ответ агента. OpenClaw сам доставит его в Telegram. НЕ использовать Telegram Bot API напрямую
+- Cron должен управляться агентом: /start первого подписчика → включить cron, /stop последнего → выключить (через поле enabled в /root/.openclaw/cron/jobs.json)
+- При heartbeat: если список подписчиков/получателей пуст — завершить сессию без обработки и без LLM-вызовов
+- При ошибке отправки (403 Forbidden / бот заблокирован) — автоматически удалять подписчика из списка
+
 Верни ТОЛЬКО JSON."""
 
     artifacts = call_agent_with_retry("developer", developer_prompt)

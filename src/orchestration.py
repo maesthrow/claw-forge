@@ -303,16 +303,6 @@ def deploy_new_agent(requirements, artifacts):
     )
     deploy.register_agent(agent_name, workspace)
 
-    if requirements.get("needs_heartbeat"):
-        telegram_user_id = deploy.get_telegram_user_id()
-        deploy.add_heartbeat(
-            name=f"{agent_name}-heartbeat",
-            cron_expr=requirements["heartbeat_schedule"],
-            agent_name=agent_name,
-            message=requirements["heartbeat_message"],
-            telegram_user_id=telegram_user_id
-        )
-
     registry.add_agent(
         name=agent_name,
         agent_type=requirements["agent_type"],
@@ -321,10 +311,24 @@ def deploy_new_agent(requirements, artifacts):
         workspace_path=workspace
     )
 
+    heartbeat_note = ""
+    if requirements.get("needs_heartbeat"):
+        try:
+            telegram_user_id = deploy.get_telegram_user_id()
+            deploy.add_heartbeat(
+                name=f"{agent_name}-heartbeat",
+                cron_expr=requirements["heartbeat_schedule"],
+                agent_name=agent_name,
+                message=requirements["heartbeat_message"],
+                telegram_user_id=telegram_user_id
+            )
+        except Exception as e:
+            heartbeat_note = f" Heartbeat не создан: {str(e)[:200]}"
+
     return {
         "action": "created",
         "agent_name": agent_name,
-        "message": f"Агент '{agent_name}' создан и готов к работе."
+        "message": f"Агент '{agent_name}' создан и готов к работе.{heartbeat_note}"
     }
 
 

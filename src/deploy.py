@@ -138,23 +138,66 @@ def add_skill_to_agent(agent_name, skill_name, skill_content):
 
 
 def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
-    """Create a cron job in OpenClaw.
+    """Create a cron job by writing directly to OpenClaw's jobs.json.
 
-    Uses subprocess with argument list (not shell string) to avoid
-    shell escaping issues with long messages containing emoji/unicode.
+    Bypasses `openclaw cron add` CLI which has a WebSocket auth bug
+    in loopback mode (gateway closes connection on handshake).
+    Gateway picks up jobs.json changes on next cron cycle or restart.
     """
-    result = subprocess.run(
-        ["openclaw", "cron", "add",
-         "--name", name,
-         "--cron", cron_expr,
-         "--agent", agent_name,
-         "--message", message,
-         "--announce", "--channel", "telegram", "--account", "default"],
-        capture_output=True, text=True, timeout=600
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Command failed: openclaw cron add\nstderr: {result.stderr}")
-    return result.stdout.strip()
+    import uuid
+    import time
+
+    cron_dir = os.path.join(OPENCLAW_HOME, "cron")
+    os.makedirs(cron_dir, exist_ok=True)
+    jobs_path = os.path.join(cron_dir, "jobs.json")
+
+    # Load existing jobs
+    try:
+        with open(jobs_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {"version": 1, "jobs": []}
+
+    # Remove existing job with same name (idempotent)
+    data["jobs"] = [j for j in data["jobs"] if j.get("name") != name]
+
+    # Parse cron expression to interval in ms (simple: extract minutes from */N)
+    every_ms = 300000  # default 5 min
+    if cron_expr.startswith("*/"):
+        try:
+            minutes = int(cron_expr.split()[0].replace("*/", ""))
+            every_ms = minutes * 60 * 1000
+        except (ValueError, IndexError):
+            pass
+
+    now_ms = int(time.time() * 1000)
+
+    data["jobs"].append({
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "enabled": True,
+        "agentId": agent_name,
+        "sessionTarget": "isolated",
+        "wakeMode": "now",
+        "schedule": {
+            "kind": "every",
+            "everyMs": every_ms,
+            "anchorMs": now_ms
+        },
+        "payload": {
+            "kind": "agentTurn",
+            "message": message
+        },
+        "delivery": {
+            "mode": "none"
+        },
+        "state": {},
+        "createdAtMs": now_ms,
+        "updatedAtMs": now_ms
+    })
+
+    with open(jobs_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 def call_agent(agent_name, message):

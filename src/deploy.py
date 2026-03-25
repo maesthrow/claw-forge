@@ -7,6 +7,7 @@ import shutil
 import subprocess
 
 
+OPENCLAW_HOME = os.path.expanduser("~/.openclaw")
 OPENCLAW_WORKSPACES = os.environ.get("CLAWFORGE_WORKSPACES", "/root/.openclaw/workspaces")
 OPENCLAW_MAIN_WORKSPACE = os.environ.get("CLAWFORGE_MAIN_WORKSPACE", "/root/.openclaw/workspace")
 
@@ -17,6 +18,19 @@ def run_cmd(cmd):
     if result.returncode != 0:
         raise RuntimeError(f"Command failed: {cmd}\nstderr: {result.stderr}")
     return result.stdout.strip()
+
+
+def get_telegram_user_id():
+    """Get Telegram user ID from config file or environment."""
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".telegram_id")
+    try:
+        with open(config_path, "r") as f:
+            tid = f.read().strip()
+            if tid:
+                return tid
+    except FileNotFoundError:
+        pass
+    return os.environ.get("CLAWFORGE_TELEGRAM_USER_ID", "541534272")
 
 
 def create_agent_workspace(name, soul_md, agents_md=None, identity_md=None, skills=None):
@@ -65,8 +79,7 @@ def register_agent(name, workspace_path):
             f.write(content)
 
     # Sync to workspace-<name> (if OpenClaw created it)
-    openclaw_home = os.path.expanduser("~/.openclaw")
-    default_workspace = os.path.join(openclaw_home, f"workspace-{name}")
+    default_workspace = os.path.join(OPENCLAW_HOME, f"workspace-{name}")
     if os.path.exists(default_workspace):
         for fname, content in our_files.items():
             with open(os.path.join(default_workspace, fname), "w", encoding="utf-8") as f:
@@ -94,14 +107,11 @@ def delete_agent(name):
 
     # Remove our workspace
     workspace = os.path.join(OPENCLAW_WORKSPACES, name)
-    if os.path.exists(workspace):
-        shutil.rmtree(workspace)
+    shutil.rmtree(workspace, ignore_errors=True)
 
     # Remove OpenClaw agent state (sessions, cache)
-    openclaw_home = os.path.expanduser("~/.openclaw")
-    agent_state = os.path.join(openclaw_home, "agents", name)
-    if os.path.exists(agent_state):
-        shutil.rmtree(agent_state)
+    agent_state = os.path.join(OPENCLAW_HOME, "agents", name)
+    shutil.rmtree(agent_state, ignore_errors=True)
 
 
 def update_agent_soul(name, soul_md):
@@ -112,8 +122,7 @@ def update_agent_soul(name, soul_md):
             f.write(soul_md)
 
     # Also update workspace-<name> if it exists
-    openclaw_home = os.path.expanduser("~/.openclaw")
-    default_workspace = os.path.join(openclaw_home, f"workspace-{name}")
+    default_workspace = os.path.join(OPENCLAW_HOME, f"workspace-{name}")
     if os.path.exists(default_workspace):
         with open(os.path.join(default_workspace, "SOUL.md"), "w", encoding="utf-8") as f:
             f.write(soul_md)
@@ -173,8 +182,7 @@ def bind_agent_to_bot(agent_name, bot_token, telegram_user_id):
     Adds a new account to channels.telegram.accounts and a static
     binding in the bindings array. Gateway hot-reloads on config change.
     """
-    openclaw_home = os.path.expanduser("~/.openclaw")
-    config_path = os.path.join(openclaw_home, "openclaw.json")
+    config_path = os.path.join(OPENCLAW_HOME, "openclaw.json")
 
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
@@ -206,8 +214,7 @@ def bind_agent_to_bot(agent_name, bot_token, telegram_user_id):
 
 def unbind_agent_bot(agent_name):
     """Remove a Telegram bot binding for an agent."""
-    openclaw_home = os.path.expanduser("~/.openclaw")
-    config_path = os.path.join(openclaw_home, "openclaw.json")
+    config_path = os.path.join(OPENCLAW_HOME, "openclaw.json")
 
     try:
         with open(config_path, "r", encoding="utf-8") as f:

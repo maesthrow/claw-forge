@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 import os
+import time
 
 # Allow running as script from any location
 sys.path.insert(0, os.path.dirname(__file__))
@@ -15,8 +16,6 @@ import deploy
 
 
 def cmd_create(args):
-    registry.init_db()
-
     if args.notify:
         # Background mode: fork and return immediately
         channel, user_id = args.notify.split(":")
@@ -47,7 +46,6 @@ def cmd_create(args):
 
 
 def cmd_list(args):
-    registry.init_db()
     registry.sync_with_openclaw()
     agents = registry.list_agents()
     if not agents:
@@ -62,7 +60,6 @@ def cmd_list(args):
 
 
 def cmd_search(args):
-    registry.init_db()
     agents = registry.search_agents(args.query)
     if not agents:
         print(f"Ничего не найдено по запросу: {args.query}")
@@ -71,30 +68,17 @@ def cmd_search(args):
         print(f"- {a['name']}: {a['description']}")
 
 
-def _get_telegram_user_id():
-    """Get Telegram user ID from config file or environment."""
-    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".telegram_id")
-    if os.path.exists(config_path):
-        with open(config_path, "r") as f:
-            tid = f.read().strip()
-            if tid:
-                return tid
-    return os.environ.get("CLAWFORGE_TELEGRAM_USER_ID", "541534272")
-
-
 def cmd_bind(args):
-    registry.init_db()
     agent = registry.get_agent(args.agent)
     if not agent:
         print(f"Агент '{args.agent}' не найден в реестре.")
         sys.exit(1)
 
-    telegram_user_id = _get_telegram_user_id()
+    telegram_user_id = deploy.get_telegram_user_id()
     deploy.bind_agent_to_bot(args.agent, args.token, telegram_user_id)
 
     # Gateway hot-reloads after config change, which can interrupt
     # the architect's response delivery. Send explicit notification.
-    import time
     time.sleep(2)
     deploy.send_notification(
         "telegram", telegram_user_id,
@@ -104,7 +88,6 @@ def cmd_bind(args):
 
 
 def cmd_delete(args):
-    registry.init_db()
     agent = registry.get_agent(args.agent)
     if not agent:
         print(f"Агент '{args.agent}' не найден в реестре.")
@@ -116,6 +99,7 @@ def cmd_delete(args):
 
 
 def main():
+    registry.init_db()
     parser = argparse.ArgumentParser(description="ClawForge CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 

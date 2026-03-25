@@ -1,5 +1,6 @@
 """ClawForge orchestration — agent creation pipeline."""
 
+import datetime
 import json
 import os
 import re
@@ -111,7 +112,7 @@ def run_pipeline(task_description):
 
     # 4. Handle automation-only case
     if requirements.get("decision") == "automation_only":
-        telegram_user_id = get_telegram_user_id()
+        telegram_user_id = deploy.get_telegram_user_id()
         deploy.add_heartbeat(
             name=requirements["agent_name"],
             cron_expr=requirements["heartbeat_schedule"],
@@ -264,7 +265,7 @@ def deploy_extension(requirements, artifacts):
 
     # Add heartbeat if needed
     if requirements.get("needs_heartbeat"):
-        telegram_user_id = get_telegram_user_id()
+        telegram_user_id = deploy.get_telegram_user_id()
         deploy.add_heartbeat(
             name=f"{target_agent}-{agent_name}",
             cron_expr=requirements["heartbeat_schedule"],
@@ -303,7 +304,7 @@ def deploy_new_agent(requirements, artifacts):
     deploy.register_agent(agent_name, workspace)
 
     if requirements.get("needs_heartbeat"):
-        telegram_user_id = get_telegram_user_id()
+        telegram_user_id = deploy.get_telegram_user_id()
         deploy.add_heartbeat(
             name=f"{agent_name}-heartbeat",
             cron_expr=requirements["heartbeat_schedule"],
@@ -435,7 +436,6 @@ def call_agent_with_retry(agent_name, prompt, max_retries=2):
 
 def log_pipeline_event(agent_name, prompt, response, status):
     """Log pipeline events to file."""
-    import datetime
     log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, "pipeline.log")
@@ -448,14 +448,3 @@ def log_pipeline_event(agent_name, prompt, response, status):
         f.write(f"[{timestamp}] agent={agent_name} status={status}\n")
         f.write(f"  prompt: {prompt_short}\n")
         f.write(f"  response: {response_short}\n\n")
-
-
-def get_telegram_user_id():
-    """Get Telegram user ID from config file or environment."""
-    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".telegram_id")
-    if os.path.exists(config_path):
-        with open(config_path, "r") as f:
-            tid = f.read().strip()
-            if tid:
-                return tid
-    return os.environ.get("CLAWFORGE_TELEGRAM_USER_ID", "541534272")

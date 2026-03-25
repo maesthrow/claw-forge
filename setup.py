@@ -252,11 +252,10 @@ def uninstall():
         run_cmd(f"openclaw agents delete {name} --force")
         deploy_mod.unbind_agent_bot(name)
         wp = agent.get("workspace_path")
-        if wp and os.path.exists(wp):
-            shutil.rmtree(wp)
+        if wp:
+            shutil.rmtree(wp, ignore_errors=True)
         agent_state = os.path.join(OPENCLAW_HOME, "agents", name)
-        if os.path.exists(agent_state):
-            shutil.rmtree(agent_state)
+        shutil.rmtree(agent_state, ignore_errors=True)
         print(f"  done")
 
     # 2. Remove base agents + their state dirs
@@ -264,39 +263,43 @@ def uninstall():
         print(f"  Removing agent {agent}...")
         run_cmd(f"openclaw agents delete {agent} --force")
         workspace = os.path.join(WORKSPACES_DIR, agent)
-        if os.path.exists(workspace):
-            shutil.rmtree(workspace)
+        shutil.rmtree(workspace, ignore_errors=True)
         agent_state = os.path.join(OPENCLAW_HOME, "agents", agent)
-        if os.path.exists(agent_state):
-            shutil.rmtree(agent_state)
+        shutil.rmtree(agent_state, ignore_errors=True)
         print(f"  done")
 
     # 3. Clean architect files from main workspace
     for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
         fpath = os.path.join(MAIN_WORKSPACE, fname)
-        if os.path.exists(fpath):
+        try:
             os.remove(fpath)
             print(f"  architect {fname} removed")
+        except FileNotFoundError:
+            pass
 
     skill_dir = os.path.join(MAIN_WORKSPACE, "skills", "claw-forge")
-    if os.path.exists(skill_dir):
-        shutil.rmtree(skill_dir)
+    shutil.rmtree(skill_dir, ignore_errors=True)
+    if not os.path.exists(skill_dir):
         print("  skill claw-forge removed")
 
     # 4. Registry + config
     db_path = os.path.join(SCRIPT_DIR, "clawforge.db")
-    if os.path.exists(db_path):
+    try:
         os.remove(db_path)
         print("  registry removed")
+    except FileNotFoundError:
+        pass
 
-    if os.path.exists(TELEGRAM_ID_FILE):
+    try:
         os.remove(TELEGRAM_ID_FILE)
         print("  telegram ID config removed")
+    except FileNotFoundError:
+        pass
 
     # 5. Logs
     log_dir = os.path.join(SCRIPT_DIR, "logs")
-    if os.path.exists(log_dir):
-        shutil.rmtree(log_dir)
+    shutil.rmtree(log_dir, ignore_errors=True)
+    if not os.path.exists(log_dir):
         print("  logs removed")
 
     print("\n=== ClawForge uninstalled. OpenClaw is clean. ===")

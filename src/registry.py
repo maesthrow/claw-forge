@@ -4,6 +4,8 @@ import sqlite3
 import json
 import os
 import datetime
+import re
+import subprocess
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "clawforge.db")
 
@@ -82,8 +84,6 @@ def search_agents(query):
 
 def sync_with_openclaw():
     """Remove registry entries for agents that no longer exist in OpenClaw."""
-    import subprocess
-    import re
     try:
         result = subprocess.run(
             "openclaw agents list --json",

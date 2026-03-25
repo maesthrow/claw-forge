@@ -150,6 +150,9 @@ def run_pipeline(task_description):
   "identity_md": "полный текст IDENTITY.md",
   "skills": {{
     "skill-name": "полный текст SKILL.md для каждого навыка"
+  }},
+  "data_files": {{
+    "filename.json": "начальное содержимое файла"
   }}
 }}
 
@@ -187,6 +190,7 @@ def run_pipeline(task_description):
 - Cron должен управляться агентом: /start первого подписчика → включить cron, /stop последнего → выключить (через поле enabled в /root/.openclaw/cron/jobs.json)
 - При heartbeat: если список подписчиков/получателей пуст — завершить сессию без обработки и без LLM-вызовов
 - При ошибке отправки (403 Forbidden / бот заблокирован) — автоматически удалять подписчика из списка
+- Все файлы данных (subscribers.json, sent_news.json и т.д.) ОБЯЗАТЕЛЬНО указать в data_files с начальным содержимым — они создаются при deploy. Без этого агент упадёт при первом запуске (ENOENT)
 
 Верни ТОЛЬКО JSON."""
 
@@ -310,7 +314,8 @@ def deploy_new_agent(requirements, artifacts):
         soul_md=artifacts["soul_md"],
         agents_md=artifacts.get("agents_md"),
         identity_md=artifacts.get("identity_md"),
-        skills=artifacts.get("skills", {})
+        skills=artifacts.get("skills", {}),
+        data_files=artifacts.get("data_files")
     )
     deploy.register_agent(agent_name, workspace)
 

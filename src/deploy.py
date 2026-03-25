@@ -33,8 +33,8 @@ def get_telegram_user_id():
     return os.environ.get("CLAWFORGE_TELEGRAM_USER_ID", "541534272")
 
 
-def create_agent_workspace(name, soul_md, agents_md=None, identity_md=None, skills=None):
-    """Create workspace directory with SOUL.md, AGENTS.md, IDENTITY.md and optional skills."""
+def create_agent_workspace(name, soul_md, agents_md=None, identity_md=None, skills=None, data_files=None):
+    """Create workspace directory with SOUL.md, AGENTS.md, IDENTITY.md, skills and data files."""
     workspace = os.path.join(OPENCLAW_WORKSPACES, name)
     os.makedirs(workspace, exist_ok=True)
 
@@ -57,6 +57,11 @@ def create_agent_workspace(name, soul_md, agents_md=None, identity_md=None, skil
             os.makedirs(skill_dir, exist_ok=True)
             with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
                 f.write(skill_content)
+
+    if data_files:
+        for fname, content in data_files.items():
+            with open(os.path.join(workspace, fname), "w", encoding="utf-8") as f:
+                f.write(content)
 
     return workspace
 

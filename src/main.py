@@ -52,9 +52,8 @@ def cmd_list(args):
         print("Реестр пуст. Агенты ещё не создавались.")
         return
     for a in agents:
-        caps = json.loads(a["capabilities"]) if isinstance(a["capabilities"], str) else a["capabilities"]
         print(f"- {a['name']} ({a['type']}): {a['description']}")
-        print(f"  Capabilities: {', '.join(caps)}")
+        print(f"  Capabilities: {', '.join(a['capabilities'])}")
         print(f"  Создан: {a['created_at']}")
         print()
 

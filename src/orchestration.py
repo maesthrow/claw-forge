@@ -277,7 +277,7 @@ def deploy_extension(requirements, artifacts):
     # Update capabilities and description in registry
     existing_agent = registry.get_agent(target_agent)
     if existing_agent:
-        old_caps = json.loads(existing_agent["capabilities"])
+        old_caps = existing_agent["capabilities"]
         new_caps = list(set(old_caps + requirements["capabilities"]))
         registry.update_agent(target_agent, capabilities=new_caps,
                               description=requirements["description"])
@@ -349,8 +349,7 @@ def format_registry_for_prompt(agents):
         return "Реестр пуст — агентов пока нет."
     lines = []
     for a in agents:
-        caps = json.loads(a["capabilities"]) if isinstance(a["capabilities"], str) else a["capabilities"]
-        lines.append(f"- {a['name']} ({a['type']}): {a['description']}. Capabilities: {', '.join(caps)}")
+        lines.append(f"- {a['name']} ({a['type']}): {a['description']}. Capabilities: {', '.join(a['capabilities'])}")
     return "\n".join(lines)
 
 

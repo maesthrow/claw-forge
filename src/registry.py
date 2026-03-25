@@ -4,7 +4,6 @@ import sqlite3
 import json
 import os
 import datetime
-import re
 import subprocess
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "clawforge.db")
@@ -49,28 +48,47 @@ def remove_agent(name):
 
 
 def update_agent(name, **kwargs):
+    if not kwargs:
+        return
+    for key in kwargs:
+        if key not in ALLOWED_COLUMNS:
+            raise ValueError(f"Invalid column: {key}")
+
     now = datetime.datetime.now().isoformat()
+    updates = {}
+    for key, value in kwargs.items():
+        if key == "capabilities":
+            value = json.dumps(value, ensure_ascii=False)
+        updates[key] = value
+    updates["updated_at"] = now
+
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [name]
     with get_connection() as conn:
-        for key, value in kwargs.items():
-            if key not in ALLOWED_COLUMNS:
-                raise ValueError(f"Invalid column: {key}")
-            if key == "capabilities":
-                value = json.dumps(value, ensure_ascii=False)
-            conn.execute(f"UPDATE agents SET {key} = ?, updated_at = ? WHERE name = ?", (value, now, name))
+        conn.execute(f"UPDATE agents SET {set_clause} WHERE name = ?", values)
+
+
+def _deserialize_agent(row):
+    """Convert a DB row to dict with capabilities parsed from JSON string to list."""
+    agent = dict(row)
+    caps = agent.get("capabilities")
+    if isinstance(caps, str):
+        agent["capabilities"] = json.loads(caps)
+    return agent
 
 
 def get_agent(name):
     with get_connection() as conn:
         row = conn.execute("SELECT * FROM agents WHERE name = ?", (name,)).fetchone()
         if row:
-            return dict(row)
+            return _deserialize_agent(row)
         return None
 
 
 def list_agents():
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM agents ORDER BY created_at").fetchall()
-        return [dict(r) for r in rows]
+        return [_deserialize_agent(r) for r in rows]
 
 
 def search_agents(query):
@@ -79,7 +97,7 @@ def search_agents(query):
             "SELECT * FROM agents WHERE description LIKE ? OR capabilities LIKE ?",
             (f"%{query}%", f"%{query}%")
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_deserialize_agent(r) for r in rows]
 
 
 def sync_with_openclaw():
@@ -92,8 +110,9 @@ def sync_with_openclaw():
         if result.returncode != 0:
             return
 
-        # Extract agent IDs from output
-        openclaw_ids = set(re.findall(r'"id"\s*:\s*"([^"]+)"', result.stdout))
+        # Extract agent IDs from JSON output
+        agents_data = json.loads(result.stdout)
+        openclaw_ids = {a["id"] for a in agents_data if "id" in a}
         # Only check agents that ARE in our registry
         with get_connection() as conn:
             rows = conn.execute("SELECT name FROM agents").fetchall()

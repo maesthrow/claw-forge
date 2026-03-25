@@ -160,6 +160,41 @@ def add_skill_to_agent(agent_name, skill_name, skill_content):
         f.write(skill_content)
 
 
+def _parse_cron_interval(cron_expr):
+    """Parse cron expression to interval in milliseconds.
+
+    Supports:
+      */N * * * *     → every N minutes
+      0,30 * * * *    → every 30 minutes (from comma-separated list)
+      */N H-H * * *   → every N minutes (ignore hour range)
+      fallback        → 300000ms (5 min)
+    """
+    parts = cron_expr.strip().split()
+    if not parts:
+        return 300000
+
+    minute_field = parts[0]
+
+    # */N format
+    if minute_field.startswith("*/"):
+        try:
+            return int(minute_field[2:]) * 60 * 1000
+        except ValueError:
+            pass
+
+    # Comma-separated: 0,30 → interval = 30 min; 0,15,30,45 → interval = 15 min
+    if "," in minute_field:
+        try:
+            values = sorted(int(v) for v in minute_field.split(","))
+            if len(values) >= 2:
+                interval = values[1] - values[0]
+                return interval * 60 * 1000
+        except ValueError:
+            pass
+
+    return 300000  # default 5 min
+
+
 def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
     """Create a cron job by writing directly to OpenClaw's jobs.json.
 
@@ -184,14 +219,8 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
     # Remove existing job with same name (idempotent)
     data["jobs"] = [j for j in data["jobs"] if j.get("name") != name]
 
-    # Parse cron expression to interval in ms (simple: extract minutes from */N)
-    every_ms = 300000  # default 5 min
-    if cron_expr.startswith("*/"):
-        try:
-            minutes = int(cron_expr.split()[0].replace("*/", ""))
-            every_ms = minutes * 60 * 1000
-        except (ValueError, IndexError):
-            pass
+    # Parse cron expression to interval in ms
+    every_ms = _parse_cron_interval(cron_expr)
 
     now_ms = int(time.time() * 1000)
 

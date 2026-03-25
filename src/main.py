@@ -35,6 +35,13 @@ def cmd_create(args):
             elif result.get("action") == "reuse":
                 msg += f"\nДля этой задачи подходит агент {result['agent_name']}."
             deploy.send_notification(channel, user_id, msg)
+            # Restart gateway if heartbeat was created — gateway doesn't watch jobs.json
+            if result.get("action") == "created" and result.get("needs_heartbeat"):
+                time.sleep(2)
+                try:
+                    deploy.run_cmd("openclaw gateway restart")
+                except RuntimeError:
+                    pass
         except Exception as e:
             deploy.send_notification(channel, user_id, f"Ошибка при создании агента: {str(e)[:300]}")
         finally:

@@ -142,7 +142,7 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
     return run_cmd(
         f"openclaw cron add --name {shlex.quote(name)} --cron {shlex.quote(cron_expr)} "
         f"--agent {shlex.quote(agent_name)} --message {shlex.quote(message)} "
-        f"--deliver telegram:{shlex.quote(telegram_user_id)}"
+        f"--announce --channel telegram --account default"
     )
 
 

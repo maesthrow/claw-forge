@@ -120,5 +120,5 @@ def sync_with_openclaw():
                 name = row["name"]
                 if name not in openclaw_ids:
                     conn.execute("DELETE FROM agents WHERE name = ?", (name,))
-    except (subprocess.TimeoutExpired, Exception):
+    except Exception:
         pass  # best-effort sync

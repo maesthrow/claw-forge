@@ -96,6 +96,12 @@ def run_pipeline(task_description):
 
 ВАЖНО: если needs_heartbeat=true, heartbeat_message должен быть полностью консистентен с форматом сообщения описанным в requirements. Не допускай расхождений (например разный формат: одна строка vs несколько строк).
 
+Правила среды OpenClaw (ОБЯЗАТЕЛЬНО учитывать в requirements):
+- Токен Telegram-бота хранится в /root/.openclaw/openclaw.json → channels.telegram.accounts.<agent_name>.botToken. НЕ через переменные окружения.
+- Файлы данных агента: абсолютные пути от /root/.openclaw/workspaces/<agent_name>/. Если файл не существует — создавать с пустой структурой, НЕ падать с ошибкой.
+- Cron-задачи управляются через /root/.openclaw/cron/jobs.json (поле enabled). Агент ДОЛЖЕН управлять cron: включать при первом подписчике, выключать когда подписчиков нет.
+- Ответ на команду пользователя — через стандартный ответ агента (OpenClaw доставит). Telegram Bot API — только для рассылки контента подписчикам.
+
 Верни ТОЛЬКО JSON, без пояснений."""
 
     requirements = call_agent_with_retry("analyst", analyst_prompt)

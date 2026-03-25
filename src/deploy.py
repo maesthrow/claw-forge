@@ -105,6 +105,9 @@ def delete_agent(name):
     # Remove bot binding
     unbind_agent_bot(name)
 
+    # Remove cron jobs for this agent
+    _remove_agent_cron_jobs(name)
+
     # Remove our workspace
     workspace = os.path.join(OPENCLAW_WORKSPACES, name)
     shutil.rmtree(workspace, ignore_errors=True)
@@ -112,6 +115,21 @@ def delete_agent(name):
     # Remove OpenClaw agent state (sessions, cache)
     agent_state = os.path.join(OPENCLAW_HOME, "agents", name)
     shutil.rmtree(agent_state, ignore_errors=True)
+
+
+def _remove_agent_cron_jobs(agent_name):
+    """Remove all cron jobs for an agent from jobs.json."""
+    jobs_path = os.path.join(OPENCLAW_HOME, "cron", "jobs.json")
+    try:
+        with open(jobs_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        original_count = len(data.get("jobs", []))
+        data["jobs"] = [j for j in data.get("jobs", []) if j.get("agentId") != agent_name]
+        if len(data["jobs"]) != original_count:
+            with open(jobs_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
 
 
 def update_agent_soul(name, soul_md):

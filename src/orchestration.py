@@ -94,6 +94,8 @@ def run_pipeline(task_description):
   "heartbeat_message": "сообщение для heartbeat если needs_heartbeat=true, иначе null"
 }}
 
+ВАЖНО: если needs_heartbeat=true, heartbeat_message должен быть полностью консистентен с форматом сообщения описанным в requirements. Не допускай расхождений (например разный формат: одна строка vs несколько строк).
+
 Верни ТОЛЬКО JSON, без пояснений."""
 
     requirements = call_agent_with_retry("analyst", analyst_prompt)

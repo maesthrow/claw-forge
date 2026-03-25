@@ -138,12 +138,23 @@ def add_skill_to_agent(agent_name, skill_name, skill_content):
 
 
 def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
-    """Create a cron job in OpenClaw."""
-    return run_cmd(
-        f"openclaw cron add --name {shlex.quote(name)} --cron {shlex.quote(cron_expr)} "
-        f"--agent {shlex.quote(agent_name)} --message {shlex.quote(message)} "
-        f"--announce --channel telegram --account default"
+    """Create a cron job in OpenClaw.
+
+    Uses subprocess with argument list (not shell string) to avoid
+    shell escaping issues with long messages containing emoji/unicode.
+    """
+    result = subprocess.run(
+        ["openclaw", "cron", "add",
+         "--name", name,
+         "--cron", cron_expr,
+         "--agent", agent_name,
+         "--message", message,
+         "--announce", "--channel", "telegram", "--account", "default"],
+        capture_output=True, text=True, timeout=600
     )
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed: openclaw cron add\nstderr: {result.stderr}")
+    return result.stdout.strip()
 
 
 def call_agent(agent_name, message):

@@ -13,6 +13,19 @@ import registry
 PIPELINE_STEP_DELAY = 2  # seconds between pipeline steps to reduce API pressure
 
 
+def update_pipeline_agent_name(agent_name):
+    """Update pipeline PID file with agent_name after analyst returns."""
+    pid_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs", "pipeline.pid")
+    try:
+        with open(pid_path, "r") as f:
+            data = json.load(f)
+        data["agent_name"] = agent_name
+        with open(pid_path, "w") as f:
+            json.dump(data, f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+
 def validate_agent_name(name):
     """Validate agent name: lowercase letters, digits, underscores only."""
     if not re.match(r'^[a-z][a-z0-9_]{1,49}$', name):
@@ -113,9 +126,10 @@ def run_pipeline(task_description):
     requirements = call_agent_with_retry("analyst", analyst_prompt)
     time.sleep(PIPELINE_STEP_DELAY)
 
-    # Validate agent name
+    # Validate agent name first, then update PID file
     if requirements.get("agent_name"):
         validate_agent_name(requirements["agent_name"])
+        update_pipeline_agent_name(requirements["agent_name"])
 
     # 3. Handle reuse case
     if requirements.get("decision") == "reuse_existing":

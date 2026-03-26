@@ -110,8 +110,12 @@ def delete_agent(name):
     # Remove bot binding
     unbind_agent_bot(name)
 
-    # Remove cron jobs for this agent
-    _remove_agent_cron_jobs(name)
+    # Remove cron jobs for this agent and restart gateway to apply
+    if _remove_agent_cron_jobs(name):
+        try:
+            run_cmd("openclaw gateway restart")
+        except RuntimeError:
+            pass
 
     # Remove our workspace
     workspace = os.path.join(OPENCLAW_WORKSPACES, name)
@@ -123,7 +127,7 @@ def delete_agent(name):
 
 
 def _remove_agent_cron_jobs(agent_name):
-    """Remove all cron jobs for an agent from jobs.json."""
+    """Remove all cron jobs for an agent from jobs.json. Returns True if any were removed."""
     jobs_path = os.path.join(OPENCLAW_HOME, "cron", "jobs.json")
     try:
         with open(jobs_path, "r", encoding="utf-8") as f:
@@ -133,8 +137,10 @@ def _remove_agent_cron_jobs(agent_name):
         if len(data["jobs"]) != original_count:
             with open(jobs_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
+            return True
     except (FileNotFoundError, json.JSONDecodeError):
         pass
+    return False
 
 
 def update_agent_soul(name, soul_md):

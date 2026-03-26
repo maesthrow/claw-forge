@@ -143,18 +143,42 @@ def _remove_agent_cron_jobs(agent_name):
     return False
 
 
-def update_agent_soul(name, soul_md):
-    """Update SOUL.md for an existing agent."""
+def update_agent_files(name, soul_md=None, agents_md=None, identity_md=None, skills=None, data_files=None):
+    """Update files for an existing agent. Only writes provided files."""
     workspace = os.path.join(OPENCLAW_WORKSPACES, name)
-    if os.path.exists(workspace):
-        with open(os.path.join(workspace, "SOUL.md"), "w", encoding="utf-8") as f:
-            f.write(soul_md)
-
-    # Also update workspace-<name> if it exists
     default_workspace = os.path.join(OPENCLAW_HOME, f"workspace-{name}")
-    if os.path.exists(default_workspace):
-        with open(os.path.join(default_workspace, "SOUL.md"), "w", encoding="utf-8") as f:
-            f.write(soul_md)
+
+    file_map = {}
+    if soul_md:
+        file_map["SOUL.md"] = soul_md
+    if agents_md:
+        file_map["AGENTS.md"] = agents_md
+    if identity_md:
+        file_map["IDENTITY.md"] = identity_md
+
+    # Write files to both workspaces
+    for ws in [workspace, default_workspace]:
+        if not os.path.exists(ws):
+            continue
+        for fname, content in file_map.items():
+            with open(os.path.join(ws, fname), "w", encoding="utf-8") as f:
+                f.write(content)
+
+    # Skills
+    if skills:
+        for skill_name, skill_content in skills.items():
+            add_skill_to_agent(name, skill_name, skill_content)
+
+    # Data files (only if they don't already exist — don't overwrite live data)
+    if data_files:
+        for ws in [workspace, default_workspace]:
+            if not os.path.exists(ws):
+                continue
+            for fname, content in data_files.items():
+                fpath = os.path.join(ws, fname)
+                if not os.path.exists(fpath):
+                    with open(fpath, "w", encoding="utf-8") as f:
+                        f.write(content)
 
 
 def add_skill_to_agent(agent_name, skill_name, skill_content):

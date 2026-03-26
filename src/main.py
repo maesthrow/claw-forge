@@ -89,7 +89,7 @@ def cmd_create(args):
             elif result.get("action") == "reuse":
                 msg += f"\nДля этой задачи подходит агент {result['agent_name']}."
             deploy.send_notification(channel, user_id, msg)
-            if result.get("action") == "created" and result.get("needs_heartbeat"):
+            if result.get("action") in ("created", "extended") and result.get("needs_heartbeat"):
                 time.sleep(2)
                 try:
                     deploy.run_cmd("openclaw gateway restart")

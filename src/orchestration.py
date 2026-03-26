@@ -165,9 +165,21 @@ def run_pipeline(task_description):
     # 5. Developer: generate artifacts
     heartbeat_note = "Агент использует heartbeat — применяй правила heartbeat из своих инструкций." if requirements.get("needs_heartbeat") else ""
 
+    # For extend: include current SOUL.md so developer can update it
+    current_soul_context = ""
+    if requirements.get("decision") == "extend_existing" and requirements.get("extend_agent"):
+        agent_info = registry.get_agent(requirements["extend_agent"])
+        if agent_info and agent_info.get("workspace_path"):
+            soul_path = os.path.join(agent_info["workspace_path"], "SOUL.md")
+            try:
+                with open(soul_path, "r", encoding="utf-8") as f:
+                    current_soul_context = f"\nТекущий SOUL.md агента (обнови его, не пиши с нуля):\n{f.read()}\n"
+            except FileNotFoundError:
+                pass
+
     developer_prompt = f"""Требования от аналитика:
 {json.dumps(requirements, ensure_ascii=False, indent=2)}
-
+{current_soul_context}
 Сгенерируй конфигурацию агента по своим инструкциям.
 {heartbeat_note}
 Верни ТОЛЬКО JSON."""
@@ -251,42 +263,46 @@ def run_pipeline(task_description):
 
 
 def deploy_extension(requirements, artifacts):
-    """Deploy skill/heartbeat extension to an existing agent. Updates SOUL.md if provided."""
+    """Full update of an existing agent: files, skills, data, heartbeat, registry."""
     target_agent = requirements["extend_agent"]
-    agent_name = requirements["agent_name"]
 
-    # Update SOUL.md if provided
-    if artifacts.get("soul_md"):
-        deploy.update_agent_soul(target_agent, artifacts["soul_md"])
+    # Update all agent files (only writes provided ones)
+    deploy.update_agent_files(
+        name=target_agent,
+        soul_md=artifacts.get("soul_md"),
+        agents_md=artifacts.get("agents_md"),
+        identity_md=artifacts.get("identity_md"),
+        skills=artifacts.get("skills"),
+        data_files=artifacts.get("data_files")
+    )
 
-    # Add skills
-    for skill_name, skill_content in artifacts.get("skills", {}).items():
-        deploy.add_skill_to_agent(target_agent, skill_name, skill_content)
-
-    # Add heartbeat if needed
+    # Update or create heartbeat (same name as create — idempotent)
+    heartbeat_note = ""
     if requirements.get("needs_heartbeat"):
-        telegram_user_id = deploy.get_telegram_user_id()
-        deploy.add_heartbeat(
-            name=f"{target_agent}-{agent_name}",
-            cron_expr=requirements["heartbeat_schedule"],
-            agent_name=target_agent,
-            message=requirements["heartbeat_message"],
-            telegram_user_id=telegram_user_id
-        )
+        try:
+            telegram_user_id = deploy.get_telegram_user_id()
+            deploy.add_heartbeat(
+                name=f"{target_agent}-heartbeat",
+                cron_expr=requirements["heartbeat_schedule"],
+                agent_name=target_agent,
+                message=requirements["heartbeat_message"],
+                telegram_user_id=telegram_user_id
+            )
+        except Exception as e:
+            heartbeat_note = f" Heartbeat не обновлён: {str(e)[:200]}"
 
-    # Update capabilities and description in registry
+    # Update registry
     existing_agent = registry.get_agent(target_agent)
     if existing_agent:
-        old_caps = existing_agent["capabilities"]
-        new_caps = list(set(old_caps + requirements["capabilities"]))
+        new_caps = list(set(existing_agent["capabilities"] + requirements["capabilities"]))
         registry.update_agent(target_agent, capabilities=new_caps,
                               description=requirements["description"])
 
-    action_msg = "обновлён" if artifacts.get("soul_md") else "расширен: добавлены новые навыки"
     return {
         "action": "extended",
         "agent_name": target_agent,
-        "message": f"Агент '{target_agent}' {action_msg}."
+        "needs_heartbeat": requirements.get("needs_heartbeat", False),
+        "message": f"Агент '{target_agent}' обновлён.{heartbeat_note}"
     }
 
 

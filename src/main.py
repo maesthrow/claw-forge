@@ -76,7 +76,8 @@ def cmd_create(args):
         if pid > 0:
             # Parent: return immediately (architect sends confirmation via SKILL.md)
             return
-        # Child: save PID and run pipeline
+        # Child: clear old sessions and run pipeline
+        deploy.clear_pipeline_sessions()
         save_pipeline_pid(os.getpid())
         try:
             result = orchestration.run_pipeline(args.task)

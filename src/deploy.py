@@ -252,17 +252,19 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def call_agent(agent_name, message):
-    """Send a message to an agent and get the response.
+def clear_pipeline_sessions():
+    """Clear session history for all pipeline agents to prevent context buildup."""
+    for agent in ["analyst", "developer", "tester", "validator"]:
+        sessions_dir = os.path.join(OPENCLAW_HOME, "agents", agent, "sessions")
+        if os.path.exists(sessions_dir):
+            shutil.rmtree(sessions_dir, ignore_errors=True)
+            os.makedirs(sessions_dir, exist_ok=True)
 
-    Uses unique session ID per call to avoid session history buildup
-    that can trigger rate limits on large accumulated contexts.
-    """
-    import uuid
-    session_id = str(uuid.uuid4())
+
+def call_agent(agent_name, message):
+    """Send a message to an agent and get the response."""
     return run_cmd(
         f"openclaw agent --agent {shlex.quote(agent_name)} "
-        f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(message)} --timeout 600"
     )
 

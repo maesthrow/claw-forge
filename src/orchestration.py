@@ -455,14 +455,18 @@ def is_api_error(response):
     return False
 
 
-def _call_with_api_retry(agent_name, prompt, max_retries=5):
-    """Call agent, retrying on API errors with exponential backoff."""
+def _call_with_api_retry(agent_name, prompt, max_retries=4):
+    """Call agent, retrying on API errors with exponential backoff.
+
+    Raises RuntimeError if all retries exhausted on API error —
+    prevents useless JSON retries when the problem is rate limiting.
+    """
     for attempt in range(max_retries + 1):
         response = deploy.call_agent(agent_name, prompt)
         if not is_api_error(response):
             return response
         if attempt < max_retries:
-            delay = 5 * (3 ** attempt)  # 5s, 15s, 45s, 135s, 405s
+            delay = 5 * (3 ** attempt)  # 5s, 15s, 45s, 135s
             log_pipeline_event(
                 agent_name, "api_retry", response,
                 f"api_error attempt {attempt + 1}/{max_retries}, waiting {delay}s"
@@ -472,7 +476,7 @@ def _call_with_api_retry(agent_name, prompt, max_retries=5):
         agent_name, "api_retry", response,
         f"api_error all {max_retries} retries exhausted"
     )
-    return response
+    raise RuntimeError(f"Agent {agent_name}: API error after {max_retries} retries — {response[:200]}")
 
 
 def call_agent_with_retry(agent_name, prompt, max_retries=2):

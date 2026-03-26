@@ -21,8 +21,7 @@ def cmd_create(args):
         channel, user_id = args.notify.split(":")
         pid = os.fork()
         if pid > 0:
-            # Parent: return immediately
-            print("Конвейер создания запущен в фоне. Результат придёт в чат.")
+            # Parent: return immediately (architect sends confirmation via SKILL.md)
             return
         # Child: run pipeline and notify
         try:

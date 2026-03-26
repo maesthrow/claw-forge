@@ -48,7 +48,7 @@ Bindings статические — устанавливаются один ра
 
 Analyst выбирает одну из стратегий:
 - **create_new** — новый агент с нуля
-- **extend_existing** — добавить skill/обновить SOUL.md существующего агента
+- **extend_existing** — любая доработка существующего агента: обновление поведения, добавление skills, изменение расписания, формата и т.д. Developer получает текущий SOUL.md агента для обновления
 - **reuse_existing** — подходит существующий агент, ничего не создавать
 - **automation_only** — cron-задача без агента (heartbeat)
 
@@ -144,7 +144,9 @@ ClawForge/
 |---------|-----------|
 | `create_agent_workspace()` | Создаёт папку с SOUL.md, AGENTS.md, IDENTITY.md, skills, data_files |
 | `register_agent()` | `openclaw agents add` + восстановление файлов поверх дефолтов |
+| `update_agent_files()` | Обновляет файлы существующего агента (SOUL.md, AGENTS.md, IDENTITY.md, skills, data_files) |
 | `delete_agent()` | `openclaw agents delete` + unbind бота + cron cleanup + gateway restart |
+| `add_heartbeat()` | Создаёт cron job в jobs.json с нативным cron-форматом (`kind: "cron"`, `expr`, `tz: "UTC"`) |
 | `bind_agent_to_bot()` | Записывает telegram account + binding в openclaw.json |
 | `unbind_agent_bot()` | Удаляет account + binding из openclaw.json |
 | `call_agent()` | `openclaw agent --agent <name> --message "..."` |
@@ -179,11 +181,16 @@ CLI-интерфейс. Вызывается architect через skill claw-for
 1. `run_pipeline(task_description)` — точка входа
 2. Analyst получает задачу + список существующих агентов → возвращает JSON с decision
 3. По decision: reuse → return, automation → create cron, create/extend → далее
-4. Developer получает requirements → генерирует артефакты (SOUL.md, AGENTS.md, IDENTITY.md, skills, data_files). Все статические инструкции — в SOUL.md developer'а, промпт содержит только JSON аналитика.
+4. Developer получает requirements → генерирует артефакты (SOUL.md, AGENTS.md, IDENTITY.md, skills, data_files). При extend_existing также получает текущий SOUL.md агента. Все статические инструкции — в SOUL.md developer'а, промпт содержит только JSON аналитика.
 5. Tester проверяет артефакты → approved/rejected
 6. Если rejected → Developer фиксит → Tester проверяет (до 3 раз)
 7. Validator — финальный аудит (1 retry)
-8. Deploy: `create_agent_workspace()` + `register_agent()` + registry + heartbeat + gateway restart
+8. Deploy: `create_new` → `create_agent_workspace()` + `register_agent()` + heartbeat + gateway restart. `extend_existing` → `update_agent_files()` + heartbeat update + gateway restart
+
+**Cron-задачи:**
+- Используют нативный формат OpenClaw: `kind: "cron"`, `expr: "0 6 * * *"`, `tz: "UTC"`
+- Любые стандартные cron-выражения поддерживаются без конвертации
+- При extend heartbeat пересоздаётся с тем же именем `{agent}-heartbeat` (идемпотентно)
 
 **Устойчивость:**
 - Сессии pipeline-агентов очищаются перед каждым запуском (`clear_pipeline_sessions()`) — предотвращает накопление контекста и rate limit.

@@ -163,63 +163,13 @@ def run_pipeline(task_description):
         }
 
     # 5. Developer: generate artifacts
-    reference_context = build_reference_context(requirements)
+    heartbeat_note = "Агент использует heartbeat — применяй правила heartbeat из своих инструкций." if requirements.get("needs_heartbeat") else ""
 
     developer_prompt = f"""Требования от аналитика:
 {json.dumps(requirements, ensure_ascii=False, indent=2)}
 
-{reference_context}
-
-Сгенерируй конфигурацию OpenClaw-агента. Верни JSON:
-{{
-  "soul_md": "полный текст SOUL.md",
-  "agents_md": "полный текст AGENTS.md",
-  "identity_md": "полный текст IDENTITY.md",
-  "skills": {{
-    "skill-name": "полный текст SKILL.md для каждого навыка"
-  }},
-  "data_files": {{
-    "filename.json": "начальное содержимое файла"
-  }}
-}}
-
-Требования к SOUL.md:
-- Чёткая роль и экспертиза агента
-- Инструкции по взаимодействию с пользователем
-- Границы компетенций
-- Язык общения — русский
-- При первом сообщении — кратко представиться
-- Агент ПОЛНОСТЬЮ автономный, работает через своего Telegram-бота
-- НЕ добавляй команды /main, /set, /back или переключение на других агентов
-- НЕ добавляй вызовы python3 или switch
-
-Требования к AGENTS.md:
-- Стартовый протокол: при начале сессии прочитай SOUL.md
-- Правила workspace агента
-- Стиль общения и формат ответов
-- Границы: что агент НЕ должен делать
-
-Требования к IDENTITY.md:
-- name: имя агента на русском
-- description: одно предложение о роли
-- emoji: подходящий эмодзи
-- vibe: стиль общения (sharp/warm/calm/etc)
-
-Требования к skills (SKILL.md):
-- YAML frontmatter (name, description) + markdown body
-- Описание конкретное и полезное
-
-Правила для агентов с heartbeat/cron (если needs_heartbeat=true):
-- Workspace агента: /root/.openclaw/workspaces/{requirements.get('agent_name', '<agent_name>')}/
-- Пути к любым файлам агента (данные, состояние) ВСЕГДА абсолютные от workspace
-- Токен Telegram-бота НЕ через env-переменную — он хранится в openclaw.json, агент не должен его читать или использовать напрямую
-- Ответ пользователю — через стандартный текстовый ответ агента. OpenClaw сам доставит его в Telegram
-- Взаимодействие с пользователем — через текстовые сообщения на естественном языке ("подпиши меня на рассылку", "отпиши меня", "отправь новости")
-- Cron должен управляться агентом: первый подписчик → включить cron, последний отписался → выключить (через поле enabled в /root/.openclaw/cron/jobs.json). После изменения enabled ОБЯЗАТЕЛЬНО выполнить команду: openclaw gateway restart — иначе gateway не подхватит изменение
-- При heartbeat: если список подписчиков/получателей пуст — завершить сессию без обработки и без LLM-вызовов
-- При ошибке отправки (403 Forbidden / бот заблокирован) — автоматически удалять подписчика из списка
-- Все файлы данных (subscribers.json, sent_news.json и т.д.) ОБЯЗАТЕЛЬНО указать в data_files с начальным содержимым — они создаются при deploy. Без этого агент упадёт при первом запуске (ENOENT)
-
+Сгенерируй конфигурацию агента по своим инструкциям.
+{heartbeat_note}
 Верни ТОЛЬКО JSON."""
 
     artifacts = call_agent_with_retry("developer", developer_prompt)
@@ -383,15 +333,6 @@ def deploy_new_agent(requirements, artifacts):
         "message": f"Агент '{agent_name}' создан и готов к работе.{heartbeat_note}"
     }
 
-
-def build_reference_context(requirements):
-    """Load static SOUL.md structure template for the developer."""
-    template_path = os.path.join(os.path.dirname(__file__), "templates", "soul_structure.md")
-    try:
-        with open(template_path, "r", encoding="utf-8") as f:
-            return f"\n\n{f.read()}"
-    except FileNotFoundError:
-        return ""
 
 
 def format_registry_for_prompt(agents):

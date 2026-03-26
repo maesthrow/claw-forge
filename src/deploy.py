@@ -190,70 +190,12 @@ def add_skill_to_agent(agent_name, skill_name, skill_content):
         f.write(skill_content)
 
 
-def _parse_cron_schedule(cron_expr):
-    """Parse cron expression to schedule dict.
-
-    Returns:
-      {"everyMs": N}                          — interval schedule (anchorMs = now)
-      {"everyMs": N, "hour": H, "minute": M}  — daily schedule (anchorMs = nearest HH:MM UTC)
-
-    Supports:
-      */N * * * *       → every N minutes
-      0,30 * * * *      → every 30 minutes (from comma-separated list)
-      0 */N * * *       → every N hours
-      M H * * *         → daily at H:M UTC (24h interval)
-      fallback          → every 1 hour
-    """
-    parts = cron_expr.strip().split()
-    if not parts:
-        return {"everyMs": 3600000}
-
-    minute_field = parts[0]
-    hour_field = parts[1] if len(parts) > 1 else "*"
-
-    # */N minutes
-    if minute_field.startswith("*/"):
-        try:
-            return {"everyMs": int(minute_field[2:]) * 60 * 1000}
-        except ValueError:
-            pass
-
-    # Comma-separated minutes: 0,30 → 30 min; 0,15,30,45 → 15 min
-    if "," in minute_field:
-        try:
-            values = sorted(int(v) for v in minute_field.split(","))
-            if len(values) >= 2:
-                interval = values[1] - values[0]
-                return {"everyMs": interval * 60 * 1000}
-        except ValueError:
-            pass
-
-    # */N hours (e.g. "0 */2 * * *")
-    if hour_field.startswith("*/"):
-        try:
-            return {"everyMs": int(hour_field[2:]) * 3600 * 1000}
-        except ValueError:
-            pass
-
-    # Daily: specific minute + specific hour + * * * (e.g. "0 6 * * *", "30 14 * * *")
-    try:
-        minute = int(minute_field)
-        hour = int(hour_field)
-        rest = parts[2:] if len(parts) > 2 else []
-        if all(p == "*" for p in rest):
-            return {"everyMs": 86400000, "hour": hour, "minute": minute}
-    except ValueError:
-        pass
-
-    return {"everyMs": 3600000}  # fallback: 1 hour
-
-
 def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
     """Create a cron job by writing directly to OpenClaw's jobs.json.
 
-    Bypasses `openclaw cron add` CLI which has a WebSocket auth bug
-    in loopback mode (gateway closes connection on handshake).
-    Gateway picks up jobs.json changes on next cron cycle or restart.
+    Uses native cron schedule format (kind: "cron") which OpenClaw
+    supports natively. Bypasses `openclaw cron add` CLI which has a
+    WebSocket auth bug in loopback mode.
     """
     import uuid
     import time
@@ -272,22 +214,7 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
     # Remove existing job with same name (idempotent)
     data["jobs"] = [j for j in data["jobs"] if j.get("name") != name]
 
-    # Parse cron expression to schedule
-    parsed = _parse_cron_schedule(cron_expr)
-    every_ms = parsed["everyMs"]
-
     now_ms = int(time.time() * 1000)
-
-    # For daily schedules, compute anchorMs as nearest HH:MM UTC
-    if "hour" in parsed:
-        import datetime
-        now_utc = datetime.datetime.utcnow()
-        target = now_utc.replace(hour=parsed["hour"], minute=parsed["minute"], second=0, microsecond=0)
-        if target <= now_utc:
-            target += datetime.timedelta(days=1)
-        anchor_ms = int(target.timestamp() * 1000)
-    else:
-        anchor_ms = now_ms
 
     data["jobs"].append({
         "id": str(uuid.uuid4()),
@@ -297,9 +224,9 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
         "sessionTarget": "isolated",
         "wakeMode": "now",
         "schedule": {
-            "kind": "every",
-            "everyMs": every_ms,
-            "anchorMs": anchor_ms
+            "kind": "cron",
+            "expr": cron_expr,
+            "tz": "UTC"
         },
         "payload": {
             "kind": "agentTurn",

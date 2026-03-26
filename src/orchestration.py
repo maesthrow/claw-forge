@@ -4,9 +4,13 @@ import datetime
 import json
 import os
 import re
+import time
 
 import deploy
 import registry
+
+
+PIPELINE_STEP_DELAY = 2  # seconds between pipeline steps to reduce API pressure
 
 
 def validate_agent_name(name):
@@ -107,6 +111,7 @@ def run_pipeline(task_description):
 Верни ТОЛЬКО JSON, без пояснений."""
 
     requirements = call_agent_with_retry("analyst", analyst_prompt)
+    time.sleep(PIPELINE_STEP_DELAY)
 
     # Validate agent name
     if requirements.get("agent_name"):
@@ -204,6 +209,7 @@ def run_pipeline(task_description):
 Верни ТОЛЬКО JSON."""
 
     artifacts = call_agent_with_retry("developer", developer_prompt)
+    time.sleep(PIPELINE_STEP_DELAY)
 
     # 6. Tester + Validator cycle with retry
     max_tester_retries = 3
@@ -212,6 +218,7 @@ def run_pipeline(task_description):
     for validator_attempt in range(max_validator_retries + 1):
         # Tester — uses fresh prompt with current artifacts
         test_report = call_agent_with_retry("tester", build_tester_prompt(requirements, artifacts))
+        time.sleep(PIPELINE_STEP_DELAY)
 
         # Tester reject → developer fix (max retries)
         tester_retries = 0
@@ -228,7 +235,9 @@ def run_pipeline(task_description):
 ВАЖНО: агент должен быть автономным, без команд переключения."""
 
             artifacts = call_agent_with_retry("developer", fix_prompt)
+            time.sleep(PIPELINE_STEP_DELAY)
             test_report = call_agent_with_retry("tester", build_tester_prompt(requirements, artifacts))
+            time.sleep(PIPELINE_STEP_DELAY)
             tester_retries += 1
 
         if not test_report.get("approved", False):
@@ -244,6 +253,8 @@ def run_pipeline(task_description):
         if validation.get("approved", False):
             break
 
+        time.sleep(PIPELINE_STEP_DELAY)
+
         # Validator rejected → retry with fix
         if validator_attempt < max_validator_retries:
             fix_prompt = f"""Валидатор отклонил агента.
@@ -257,6 +268,7 @@ def run_pipeline(task_description):
 ВАЖНО: агент должен быть автономным, без команд переключения."""
 
             artifacts = call_agent_with_retry("developer", fix_prompt)
+            time.sleep(PIPELINE_STEP_DELAY)
             continue
 
         return {
@@ -434,9 +446,48 @@ def parse_json_response(response):
     return json.loads(text)
 
 
+def is_api_error(response):
+    """Detect OpenClaw API errors (rate limit, timeouts) vs actual LLM responses."""
+    if not response:
+        return True
+    text = response.strip()
+    if text.startswith("\u26a0\ufe0f"):
+        return True
+    # Only check markers on short responses — LLM JSON can contain these phrases in content
+    if len(text) < 200:
+        api_markers = ["rate limit", "try again later", "connection refused", "service unavailable"]
+        return any(m in text.lower() for m in api_markers)
+    return False
+
+
+def _call_with_api_retry(agent_name, prompt, max_retries=5):
+    """Call agent, retrying on API errors with exponential backoff."""
+    for attempt in range(max_retries + 1):
+        response = deploy.call_agent(agent_name, prompt)
+        if not is_api_error(response):
+            return response
+        if attempt < max_retries:
+            delay = 5 * (3 ** attempt)  # 5s, 15s, 45s, 135s, 405s
+            log_pipeline_event(
+                agent_name, "api_retry", response,
+                f"api_error attempt {attempt + 1}/{max_retries}, waiting {delay}s"
+            )
+            time.sleep(delay)
+    log_pipeline_event(
+        agent_name, "api_retry", response,
+        f"api_error all {max_retries} retries exhausted"
+    )
+    return response
+
+
 def call_agent_with_retry(agent_name, prompt, max_retries=2):
-    """Call agent and parse JSON response, retrying on parse failure."""
-    response = deploy.call_agent(agent_name, prompt)
+    """Call agent and parse JSON response.
+
+    Two-phase retry:
+    - Phase 1: API-level retry with backoff (rate limit, timeouts) — handled by _call_with_api_retry
+    - Phase 2: JSON-level retry with explicit instruction (LLM returned non-JSON)
+    """
+    response = _call_with_api_retry(agent_name, prompt)
     log_pipeline_event(agent_name, prompt, response, "ok")
 
     try:
@@ -452,7 +503,7 @@ def call_agent_with_retry(agent_name, prompt, max_retries=2):
             f"Никаких пояснений, только JSON.\n\n"
             f"Исходный запрос:\n{prompt}"
         )
-        response = deploy.call_agent(agent_name, retry_prompt)
+        response = _call_with_api_retry(agent_name, retry_prompt)
         log_pipeline_event(agent_name, f"retry_{attempt + 1}", response, "retry")
 
         try:

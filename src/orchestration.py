@@ -371,18 +371,13 @@ def deploy_new_agent(requirements, artifacts):
 
 
 def build_reference_context(requirements):
-    """Load SOUL.md from reference agents for the developer."""
-    context = ""
-    for ref_name in requirements.get("reference_agents", []):
-        ref_agent = registry.get_agent(ref_name)
-        if ref_agent and ref_agent.get("workspace_path"):
-            soul_path = os.path.join(ref_agent["workspace_path"], "SOUL.md")
-            try:
-                with open(soul_path, "r", encoding="utf-8") as f:
-                    context += f"\n\n--- SOUL.md агента {ref_name} (для референса) ---\n{f.read()}"
-            except FileNotFoundError:
-                pass
-    return context
+    """Load static SOUL.md structure template for the developer."""
+    template_path = os.path.join(os.path.dirname(__file__), "templates", "soul_structure.md")
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            return f"\n\n{f.read()}"
+    except FileNotFoundError:
+        return ""
 
 
 def format_registry_for_prompt(agents):

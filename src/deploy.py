@@ -253,9 +253,16 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
 
 
 def call_agent(agent_name, message):
-    """Send a message to an agent and get the response."""
+    """Send a message to an agent and get the response.
+
+    Uses unique session ID per call to avoid session history buildup
+    that can trigger rate limits on large accumulated contexts.
+    """
+    import uuid
+    session_id = str(uuid.uuid4())
     return run_cmd(
         f"openclaw agent --agent {shlex.quote(agent_name)} "
+        f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(message)} --timeout 600"
     )
 

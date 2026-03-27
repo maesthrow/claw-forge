@@ -1,236 +1,167 @@
+**English** · [Русский](README_RU.md)
+
+![Python](https://img.shields.io/badge/Python-3.10+-blue)
+![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey)
+![Built on](https://img.shields.io/badge/Built_on-OpenClaw-orange)
+
 # ClawForge
 
-Система автоматического создания, управления и оркестрации AI-агентов на базе [OpenClaw](https://openclaw.ai).
+**Self-expanding AI agent factory built on [OpenClaw](https://openclaw.ai).**
 
-Опиши задачу в Telegram — система спроектирует, создаст и запустит специализированного AI-агента. С каждой решённой задачей система расширяет свой арсенал: новые агенты, навыки и автоматизации доступны для будущих задач.
+Describe a task in Telegram — ClawForge designs, builds, tests, and deploys a specialized AI agent. Each solved task expands the system: new agents, skills, and automations become available for future requests.
 
-## Архитектура
+## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      СЕРВЕР                             │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │              OpenClaw Gateway                    │    │
-│  │                                                  │    │
-│  │  Telegram ←──→ Роутинг ←──→ Агенты              │    │
-│  │                                                  │    │
-│  │  Базовые:                                        │    │
-│  │    architect (default) ← точка входа             │    │
-│  │    analyst → developer → tester → validator      │    │
-│  │                                                  │    │
-│  │  Созданные системой:                             │    │
-│  │    resume-scorer, price-watcher, ...             │    │
-│  │                                                  │    │
-│  │  LLM: настраивается в OpenClaw                    │    │
-│  └──────────────────────┬───────────────────────────┘    │
-│                         │ exec                           │
-│  ┌──────────────────────▼───────────────────────────┐    │
-│  │              Python CLI                           │    │
-│  │  orchestration.py — конвейер создания агентов     │    │
-│  │  registry.py      — реестр агентов (SQLite)       │    │
-│  │  deploy.py        — деплой в OpenClaw             │    │
-│  └───────────────────────────────────────────────────┘    │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+ClawForge is the orchestration brain. OpenClaw is the runtime.
+
+```mermaid
+flowchart LR
+    User(["👤 Telegram"]) --> Architect
+
+    subgraph ClawForge["🔧 ClawForge — Orchestration"]
+        Architect --> Pipeline
+        subgraph Pipeline["Agent Creation Pipeline"]
+            Analyst --> Developer --> Tester --> Validator
+        end
+        Pipeline --> Deploy
+        Registry[("📋 Registry\nSQLite")]
+    end
+
+    subgraph OpenClaw["⚡ OpenClaw — Runtime"]
+        Deploy --> Gateway["Gateway\nAgents · Memory · Sessions"]
+        Gateway --> Bot1(["🤖 Agent Bot 1"])
+        Gateway --> Bot2(["🤖 Agent Bot 2"])
+        Gateway --> BotN(["🤖 Agent Bot N"])
+    end
 ```
 
-**OpenClaw** — 95% системы: агенты, LLM, Telegram, память, сессии, heartbeats, skills.
+## What It Does
 
-**Python CLI** — 5%: конвейер создания, реестр, оркестрация вызовов между агентами.
+- **Agent creation pipeline** — 4-stage conveyor (analyst → developer → tester → validator) designs and builds agents from natural language task descriptions
+- **Self-expansion** — the registry grows with every solved task; new requests can reuse, extend, or build upon existing agents
+- **Per-bot architecture** — each agent gets its own Telegram bot, no shared routing, no switching conflicts
+- **Scheduled automations** — cron-based heartbeats for recurring tasks (daily digests, price monitoring, etc.)
+- **Task delegation** — architect can delegate tasks to any created agent via sub-agents
 
-## Как работает
+## How It Works
 
-### Создание агента
+### Pipeline Stages
 
-Пользователь пишет в Telegram: *"Мне нужен агент для оценки резюме кандидатов"*
+| Stage | Role |
+|---|---|
+| **Analyst** | Analyzes the task, checks the registry for existing agents, produces requirements |
+| **Developer** | Generates OpenClaw agent configuration (SOUL.md, skills, heartbeats) |
+| **Tester** | Validates artifacts against the requirements |
+| **Validator** | Final approval before deployment |
 
-Architect уточняет детали, затем запускает конвейер:
+### Strategies
 
-1. **Analyst** — анализирует задачу, проверяет реестр существующих агентов, формирует требования
-2. **Developer** — генерирует конфигурацию OpenClaw-агента (SOUL.md, AGENTS.md, IDENTITY.md, skills, data files)
-3. **Tester** — проверяет артефакты на соответствие требованиям
-4. **Validator** — финальное одобрение
-
-Результат деплоится в OpenClaw. Пользователь привязывает нового агента к отдельному Telegram-боту и работает с ним напрямую.
-
-### Типы результатов
-
-| Тип | Описание | Пример |
+| Strategy | When | Example |
 |---|---|---|
-| **Агент** | Полноценный OpenClaw-агент с SOUL.md, навыками и памятью | Агент для оценки резюме |
-| **Доработка** | Обновление существующего агента: поведение, расписание, навыки | Изменить частоту рассылки |
-| **Автоматизация** | Cron-задача (heartbeat) с нативным cron-расписанием | Ежедневная рассылка в 10:00 |
-| **Навык** | Новый skill для существующего агента | Навык выгрузки отчётов |
+| `create_new` | No suitable agent exists | "I need a resume scoring agent" |
+| `extend_existing` | An existing agent needs new capabilities | "Add report export to my tracker" |
+| `reuse_existing` | A matching agent already exists | "Do you have a price monitor?" |
+| `automation_only` | Only a cron schedule is needed | "Send me a daily digest at 10 AM" |
 
-### Self-expansion (саморасширение)
-
-Реестр растёт с каждой решённой задачей. При новом запросе система:
-- Проверяет — может уже есть подходящий агент
-- Если есть похожий — берёт его как основу для нового
-- Если нужно расширить — добавляет навык к существующему агенту
-- Если нужно доработать — обновляет SOUL.md существующего агента
-
-Чем больше система работает, тем больше она умеет.
-
-### Команды
-
-| Команда | Описание |
-|---|---|
-| `/list` | Список созданных агентов |
-| `/rm <имя>` | Удалить агента (с подтверждением) |
-| `/new` | Новая сессия |
-| "отмени создание" | Остановить запущенный конвейер |
-
-Каждый созданный агент привязывается к отдельному Telegram-боту. Чтобы начать работу с агентом, достаточно написать в его бот.
-
-Взаимодействие с агентами — через естественный язык. Для управления архитектором: "какие агенты есть?", "удали Y", "отмени создание". Для агентов с подпиской: "подпиши меня", "отпиши меня" (без команд /start /stop).
-
-### Делегация задач
-
-Architect может делегировать задачи созданным агентам через субагентов. Например: "сгенерируй промпт для аватарки currency_tracker" → architect найдёт avatar_prompt в реестре и запустит его как субагента.
-
-### Пример работы
+### Example
 
 ```
-ClawForge: Привет! Я ClawForge, архитектор AI-агентов.
+ClawForge: Hi! I'm ClawForge, an AI agent architect.
 
-           Я помогаю проектировать, создавать и управлять командой
-           специализированных AI-агентов под ваши задачи.
+           I design, build, and manage a team of specialized
+           AI agents for your tasks.
 
-           /list — показать список агентов
-           /rm <имя> — удалить агента
-           /new — новая сессия
+           /list — show created agents
+           /rm <name> — delete an agent
+           /new — new session
 
-           Что хочешь сделать?
+           What would you like to build?
 
-Пользователь: Мне нужен агент для оценки резюме
-ClawForge: [конвейер: analyst → developer → tester → validator]
-           Агент resume-scorer создан!
-           Привяжи его к Telegram-боту — отправь токен от @BotFather.
+User:      I need an agent that scores resumes.
+ClawForge: [pipeline: analyst → developer → tester → validator]
+           Agent resume-scorer created!
+           Link it to a Telegram bot — send me a token from @BotFather.
 
-Пользователь: 7712345678:AAF...
-ClawForge: Готово! Бот @ResumeScorer_bot привязан к агенту resume-scorer.
-           Напиши ему /start — и можно работать.
+User:      7712345678:AAF...
+ClawForge: Done! Bot @ResumeScorer_bot is linked to resume-scorer.
+           Send it /start to get going.
 
---- в боте @ResumeScorer_bot ---
+--- in @ResumeScorer_bot ---
 
-Пользователь: [PDF]
-Resume Scorer: Кандидат: 8/10. Сильный стек, достаточный опыт.
+User:           [PDF]
+Resume Scorer:  Candidate: 8/10. Strong stack, sufficient experience.
 
---- в боте ClawForge ---
+--- back in ClawForge ---
 
-Пользователь: /list
-ClawForge: 1. resume-scorer — оценка резюме кандидатов (@ResumeScorer_bot)
-           2. price-watcher — мониторинг цен на авиабилеты (@PriceWatch_bot)
+User:      /list
+ClawForge: 1. resume-scorer — resume evaluation (@ResumeScorer_bot)
+           2. price-watcher — flight price monitoring (@PriceWatch_bot)
 
-Пользователь: /rm price-watcher
-ClawForge: Удалить агента price-watcher? Подтверди: да/нет
-Пользователь: да
-ClawForge: Агент price-watcher удалён.
+User:      /rm price-watcher
+ClawForge: Delete agent price-watcher? Confirm: yes/no
+User:      yes
+ClawForge: Agent price-watcher deleted.
 ```
 
-## Базовые агенты
+## Tech Stack
 
-| Агент | Роль |
+| Component | Technology |
 |---|---|
-| **Architect** | Точка входа. Архитектор AI-агентов, управляет командой |
-| **Analyst** | Анализ задачи, формирование требований, проверка реестра |
-| **Developer** | Генерация конфигураций (SOUL.md, skills, heartbeats) |
-| **Tester** | Проверка артефактов на соответствие требованиям |
-| **Validator** | Финальное одобрение перед деплоем |
+| AI agents, memory, sessions | OpenClaw Gateway |
+| LLM | Any supported by OpenClaw (Claude, GPT, Gemini, etc.) |
+| Delivery channel | Telegram (via OpenClaw) |
+| Orchestration | Python |
+| Agent registry | SQLite |
 
-Все агенты — полноценные OpenClaw-агенты единого формата.
+## Getting Started
 
-## Стек технологий
-
-| Компонент | Технология |
-|---|---|
-| AI-агенты, память, сессии | OpenClaw Gateway |
-| LLM | Любая, поддерживаемая OpenClaw (Claude, GPT, Gemini и др.) |
-| Канал доставки | Telegram (через OpenClaw) |
-| Оркестрация | Python |
-| Реестр агентов | SQLite |
-
-## Установка
-
-Требования: сервер с Ubuntu, Python 3.10+.
+Requirements: Ubuntu server, Python 3.10+.
 
 ```bash
-# 1. Установить OpenClaw (установит Node.js автоматически)
+# 1. Install OpenClaw (installs Node.js automatically)
 curl -fsSL https://openclaw.ai/install.sh | bash
 
-# При онбординге OpenClaw:
+# During OpenClaw onboarding:
 #   - Onboarding mode → QuickStart
 #   - Select channel → Telegram (Bot API)
-#   - Указать Telegram bot token (получить у @BotFather)
-#   - Configure skills → No (скиллы установит ClawForge)
+#   - Provide a Telegram bot token (get one from @BotFather)
+#   - Configure skills → No (ClawForge will install skills)
 #   - Hooks → Skip for now
-#   - Hatch your bot → Do this later (ClawForge настроит агента)
+#   - Hatch your bot → Do this later (ClawForge will configure the agent)
 
-# После онбординга — написать боту /start в Telegram,
-# получить pairing code и подтвердить на сервере:
+# After onboarding — send /start to the bot in Telegram,
+# get the pairing code and approve it on the server:
 openclaw pairing approve telegram <PAIRING_CODE>
 
-# 2. Установить ClawForge
+# 2. Install ClawForge
 cd /opt
 git clone https://github.com/maesthrow/claw-forge.git clawforge
 cd clawforge
 python setup.py
-# Telegram ID определится автоматически из данных pairing.
-# Если pairing ещё не выполнен — setup предупредит,
-# после pairing запустить: python setup.py --update
+# Telegram ID is detected automatically from pairing data.
+# If pairing hasn't been done yet — setup will warn you;
+# after pairing, run: python setup.py --update
 ```
 
 ```bash
-# Обновление (после изменений в репозитории)
+# Update (after pulling new changes)
 cd /opt/clawforge
-git pull                       # скачать новые версии файлов
-python setup.py --update       # применить изменения в OpenClaw
+git pull                       # fetch latest files
+python setup.py --update       # apply changes to OpenClaw
 
-# Удаление
-python setup.py --uninstall    # удалить ClawForge, вернуть чистый OpenClaw
+# Uninstall
+python setup.py --uninstall    # remove ClawForge, restore clean OpenClaw
 ```
 
-## Структура проекта
+## Commands
 
-```
-ClawForge/
-├── src/
-│   ├── main.py              — CLI: create, cancel, list, search, bind, delete
-│   ├── orchestration.py     — конвейер: analyst → developer → tester → validator
-│   ├── registry.py          — реестр агентов (SQLite)
-│   └── deploy.py            — создание/удаление агентов в OpenClaw
-│
-├── agents/
-│   ├── architect/
-│   │   ├── SOUL.md          — личность, роль, делегация
-│   │   ├── AGENTS.md        — правила workspace и защита конфигурации
-│   │   └── IDENTITY.md      — имя, эмодзи, описание
-│   ├── analyst/
-│   │   ├── SOUL.md          — роль и формат ответа
-│   │   └── AGENTS.md        — правила конвейерного агента
-│   ├── developer/
-│   │   ├── SOUL.md
-│   │   └── AGENTS.md
-│   ├── tester/
-│   │   ├── SOUL.md
-│   │   └── AGENTS.md
-│   └── validator/
-│       ├── SOUL.md
-│       └── AGENTS.md
-│
-├── skills/
-│   └── claw-forge/
-│       └── SKILL.md         — skill для вызова Python CLI из OpenClaw
-│
-├── setup.py                 — установка / обновление / удаление
-└── docs/
-    └── plans/               — дизайн-документы
-```
+| Command | Description |
+|---|---|
+| `/list` | List created agents |
+| `/rm <name>` | Delete an agent (with confirmation) |
+| `/new` | Start a new session |
+| Natural language | "cancel creation", "what agents do I have?", "subscribe me" |
 
-## Защита
+## Documentation
 
-Конфигурация архитектора защищена от изменений:
-- **Промпт-уровень:** AGENTS.md запрещает агенту модифицировать свои файлы
-- **OS-уровень:** SOUL.md, AGENTS.md и SKILL.md устанавливаются как read-only (chmod 444)
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical documentation: module internals, design decisions, deployment details, and workspace file structure.

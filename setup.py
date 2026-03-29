@@ -14,7 +14,7 @@ MAIN_WORKSPACE = os.path.join(OPENCLAW_HOME, "workspace")
 WORKSPACES_DIR = os.path.join(OPENCLAW_HOME, "workspaces")
 TELEGRAM_ID_FILE = os.path.join(SCRIPT_DIR, ".telegram_id")
 
-BASE_AGENTS = ["analyst", "developer", "tester", "validator"]
+BASE_AGENTS = ["analyst", "developer", "reviewer", "tester"]
 
 
 def run_cmd(cmd):

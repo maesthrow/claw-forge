@@ -134,8 +134,9 @@ def format_notification(deploy_result, requirements, test_report=None):
 
     if test_report and test_report.get("approved"):
         test_msg = requirements.get("test_message", "")
-        reason = test_report.get("reason", "")
-        msg += f"\nТест пройден: отправил \"{test_msg}\" — {reason}"
+        if len(test_msg) > 60:
+            test_msg = test_msg[:60] + "..."
+        msg += f"\nТест пройден: отправил \"{test_msg}\" — ответ соответствует требованиям."
     elif test_report and not test_report.get("approved"):
         issues = test_report.get("issues", [])
         msg += f"\nТест выявил проблемы: {'; '.join(issues[:2])}"
@@ -319,6 +320,8 @@ def run_pipeline(task_description):
         for tester_attempt in range(max_tester_retries + 1):
             try:
                 agent_response = deploy.call_agent(actual_agent, test_message)
+                # Strip OpenClaw system prefixes (e.g. "[agents/auth-profiles] inherited ...")
+                agent_response = re.sub(r'^\[agents/[^\]]*\][^\n]*\n?', '', agent_response).strip()
             except RuntimeError as e:
                 agent_response = f"Ошибка вызова агента: {str(e)[:300]}"
 

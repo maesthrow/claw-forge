@@ -82,12 +82,6 @@ def cmd_create(args):
         try:
             result = orchestration.run_pipeline(args.task)
             msg = result.get("message", "Конвейер завершён.")
-            if result.get("action") == "created":
-                msg += f"\nЕсли есть токен Telegram-бота — пришли его чтобы привязать."
-            elif result.get("action") == "extended":
-                msg += f"\nАгент {result['agent_name']} расширен."
-            elif result.get("action") == "reuse":
-                msg += f"\nДля этой задачи подходит агент {result['agent_name']}."
             deploy.send_notification(channel, user_id, msg)
             if result.get("action") in ("created", "extended") and result.get("needs_heartbeat"):
                 time.sleep(2)

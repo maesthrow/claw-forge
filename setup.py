@@ -311,25 +311,46 @@ def uninstall():
         print(f"  Removing created agent {name}...")
         run_cmd(f"openclaw agents delete {name} --force")
         deploy_mod.unbind_agent_bot(name)
+        deploy_mod._remove_agent_cron_jobs(name)
         wp = agent.get("workspace_path")
         if wp:
             shutil.rmtree(wp, ignore_errors=True)
         agent_state = os.path.join(OPENCLAW_HOME, "agents", name)
         shutil.rmtree(agent_state, ignore_errors=True)
+        default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{name}")
+        shutil.rmtree(default_ws, ignore_errors=True)
         print(f"  done")
 
-    # 2. Remove base agents + their state dirs
-    for agent in BASE_AGENTS:
+    # 2. Remove base agents + old pipeline agents + their state dirs
+    all_agents_to_remove = list(BASE_AGENTS) + ["validator"]  # include old pipeline agents
+    for agent in all_agents_to_remove:
         print(f"  Removing agent {agent}...")
         run_cmd(f"openclaw agents delete {agent} --force")
         deploy_mod.unbind_agent_bot(agent)
+        deploy_mod._remove_agent_cron_jobs(agent)
         workspace = os.path.join(WORKSPACES_DIR, agent)
         shutil.rmtree(workspace, ignore_errors=True)
         agent_state = os.path.join(OPENCLAW_HOME, "agents", agent)
         shutil.rmtree(agent_state, ignore_errors=True)
+        default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{agent}")
+        shutil.rmtree(default_ws, ignore_errors=True)
         print(f"  done")
 
-    # 3. Clean architect files from main workspace
+    # 3. Clean orphaned bindings from openclaw.json
+    config_path = os.path.join(OPENCLAW_HOME, "openclaw.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        accounts = config.get("channels", {}).get("telegram", {}).get("accounts", {})
+        orphaned = [name for name in list(accounts.keys()) if name != "default"]
+        for name in orphaned:
+            deploy_mod.unbind_agent_bot(name)
+        if orphaned:
+            print(f"  {len(orphaned)} orphaned binding(s) removed")
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    # 5. Clean architect files from main workspace
     for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
         fpath = os.path.join(MAIN_WORKSPACE, fname)
         try:
@@ -343,7 +364,7 @@ def uninstall():
     if not os.path.exists(skill_dir):
         print("  skill claw-forge removed")
 
-    # 4. Registry + config
+    # 6. Registry + config
     db_path = os.path.join(SCRIPT_DIR, "clawforge.db")
     try:
         os.remove(db_path)
@@ -357,7 +378,7 @@ def uninstall():
     except FileNotFoundError:
         pass
 
-    # 5. Logs
+    # 7. Logs
     log_dir = os.path.join(SCRIPT_DIR, "logs")
     shutil.rmtree(log_dir, ignore_errors=True)
     if not os.path.exists(log_dir):

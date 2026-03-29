@@ -4,7 +4,7 @@
 
 ## What It Is
 
-ClawForge is a layer on top of OpenClaw that automates AI agent creation through a pipeline of four specialized agents. The user describes a task to the main agent (architect) in Telegram, and the pipeline designs, develops, tests, and deploys a new agent into OpenClaw.
+ClawForge is a layer on top of OpenClaw that automates AI agent creation through a pipeline of four specialized agents (analyst, developer, reviewer, tester). The user describes a task to the main agent (architect) in Telegram, and the pipeline designs, develops, tests, and deploys a new agent into OpenClaw.
 
 Each created agent is a full-fledged OpenClaw agent with its own workspace, sessions, and Telegram bot.
 
@@ -41,11 +41,11 @@ When the user asks to create an agent, architect launches a pipeline of 4 intern
 
 ```
 User → Architect → Pipeline:
-  1. Analyst    — analyzes the task, checks existing agents, selects a strategy
-  2. Developer  — generates SOUL.md, AGENTS.md, IDENTITY.md, skills
-  3. Tester     — validates artifacts against requirements
-  4. Validator  — final audit before deployment
-  → Deploy     — creates workspace, registers in OpenClaw
+  1. Analyst    — analyzes the task, checks existing agents, produces requirements + test cases
+  2. Developer  — generates SOUL.md, AGENTS.md, IDENTITY.md, skills, scripts
+  3. Reviewer   — static review: duplicates, platform issues, YAGNI (up to 3 retries)
+  → Deploy     — creates workspace, registers in OpenClaw, installs scripts + deps
+  4. Tester     — sends a real test message to the deployed agent, evaluates response (up to 2 retries, non-blocking)
 ```
 
 Analyst selects one of the strategies:
@@ -76,6 +76,8 @@ The main agent, entry point. Workspace: `~/.openclaw/workspace`
 - Manages agents: creation, deletion, bot binding
 - Delegates tasks to specialized agents
 - Commands: `/list`, `/rm`, task description for creation
+- Structured requirements gathering: mandatory questions + confirmation before pipeline launch
+- Quick fixes: for minor edits, architect modifies agent files directly and tests the result
 - Uses the `claw-forge` skill for CLI operations
 
 Files:
@@ -84,7 +86,7 @@ Files:
 - `agents/architect/IDENTITY.md` — name "ClawForge", emoji
 - `skills/claw-forge/SKILL.md` — CLI commands (/list, /rm, bind, create, cancel)
 
-### Pipeline Agents (analyst, developer, tester, validator)
+### Pipeline Agents (analyst, developer, reviewer, tester)
 
 Internal pipeline agents. Called programmatically, do not communicate with the user.
 
@@ -119,14 +121,14 @@ ClawForge/
 ├── src/
 │   ├── main.py           — CLI: create, list, search, bind, delete
 │   ├── deploy.py          — OpenClaw operations: workspace, register, bind/unbind bot
-│   ├── orchestration.py   — creation pipeline (analyst → developer → tester → validator)
+│   ├── orchestration.py   — creation pipeline (analyst → developer → reviewer → tester)
 │   └── registry.py        — SQLite agent registry (metadata, search, sync)
 ├── agents/
 │   ├── architect/         — SOUL.md, AGENTS.md, IDENTITY.md of the main agent
 │   ├── analyst/           — SOUL.md, AGENTS.md of the analyst
 │   ├── developer/         — SOUL.md, AGENTS.md of the developer
-│   ├── tester/            — SOUL.md, AGENTS.md of the tester
-│   └── validator/         — SOUL.md, AGENTS.md of the validator
+│   ├── reviewer/          — SOUL.md, AGENTS.md of the reviewer
+│   └── tester/            — SOUL.md, AGENTS.md of the tester
 ├── skills/
 │   └── claw-forge/        — SKILL.md — CLI commands for architect
 ├── setup.py               — install / update / uninstall to OpenClaw server
@@ -148,11 +150,13 @@ Interaction with OpenClaw via CLI. All operations are wrappers around `openclaw`
 | `register_agent()` | `openclaw agents add` + restores files over defaults |
 | `update_agent_files()` | Updates files of an existing agent (SOUL.md, AGENTS.md, IDENTITY.md, skills, data_files) |
 | `delete_agent()` | `openclaw agents delete` + unbind bot + cron cleanup + gateway restart |
-| `add_heartbeat()` | Creates a cron job in jobs.json with native cron format (`kind: "cron"`, `expr`, `tz: "UTC"`) |
+| `add_heartbeat()` | Creates a cron job in jobs.json with native cron format (`kind: "cron"`, `expr`, `tz: "UTC"`, `enabled` param) |
+| `install_scripts()` | Saves executable scripts to `workspace/<agent>/scripts/`, syncs to default workspace |
+| `install_system_deps()` | Installs npm global dependencies (best effort) |
 | `bind_agent_to_bot()` | Writes telegram account + binding to openclaw.json |
 | `unbind_agent_bot()` | Removes account + binding from openclaw.json |
 | `call_agent()` | `openclaw agent --agent <name> --message "..."` |
-| `clear_pipeline_sessions()` | Clears pipeline agent sessions before launching the pipeline |
+| `clear_pipeline_sessions()` | Clears analyst, developer, reviewer, tester sessions before pipeline launch |
 | `send_notification()` | `openclaw message send` to Telegram |
 | `get_telegram_user_id()` | Reads from .telegram_id or env |
 
@@ -181,18 +185,18 @@ Agent creation pipeline. The core of the system.
 
 **Flow:**
 1. `run_pipeline(task_description)` — entry point
-2. Analyst receives the task + list of existing agents → returns JSON with decision
+2. Analyst receives the task + list of existing agents → returns JSON with decision + test cases (test_message, expected_behavior)
 3. Based on decision: reuse → return, automation → create cron, create/extend → continue
-4. Developer receives requirements → generates artifacts (SOUL.md, AGENTS.md, IDENTITY.md, skills, data_files). For extend_existing, also receives the agent's current SOUL.md. All static instructions are in developer's SOUL.md; the prompt contains only the analyst's JSON.
-5. Tester validates artifacts → approved/rejected
-6. If rejected → Developer fixes → Tester validates (up to 3 times)
-7. Validator — final audit (1 retry)
-8. Deploy: `create_new` → `create_agent_workspace()` + `register_agent()` + heartbeat + gateway restart. `extend_existing` → `update_agent_files()` + heartbeat update + gateway restart
+4. Developer receives requirements → generates artifacts (SOUL.md, AGENTS.md, IDENTITY.md, skills, data_files, scripts, system_deps). For extend_existing, also receives the agent's current SOUL.md.
+5. Reviewer validates artifacts — duplicates, platform issues, YAGNI (up to 3 retries with developer fixes)
+6. Deploy: `create_new` → `create_agent_workspace()` + `register_agent()` + install scripts + install deps + heartbeat + gateway restart. `extend_existing` → `update_agent_files()` + install scripts + heartbeat update + gateway restart
+7. Tester — sends test_message to the deployed agent via CLI, gets real response, evaluates against expected_behavior (up to 2 retries with developer fixes). Non-blocking: if tester doesn't approve after retries, agent is still deployed with issues noted in notification.
+8. `format_notification()` builds the user message: test results + reviewer notes + next steps
 
 **Cron tasks:**
 - Use native OpenClaw format: `kind: "cron"`, `expr: "0 6 * * *"`, `tz: "UTC"`
-- Any standard cron expressions are supported without conversion
-- On extend, the heartbeat is recreated with the same name `{agent}-heartbeat` (idempotent)
+- Job name matches agent name (e.g. `currency_tracker`, not `currency_tracker-heartbeat`)
+- `heartbeat_enabled`: true for channel publishers (cron on immediately), false for subscriber-based agents (agent enables on first subscriber)
 
 **Resilience:**
 - Pipeline agent sessions are cleared before each run (`clear_pipeline_sessions()`) — prevents context accumulation and rate limiting.
@@ -216,8 +220,8 @@ SQLite storage for agent metadata. Supplements the native OpenClaw registry with
 Installation/update/removal of ClawForge on the OpenClaw server.
 
 - `install` — creates pipeline agents, configures architect, installs skill, protects files (chmod 444)
-- `update` — updates SOUL.md/AGENTS.md/IDENTITY.md/SKILL.md for all agents
-- `uninstall` — removes everything: agents, workspace, bindings, registry, logs
+- `update` — updates agent files, creates missing agents, removes old pipeline agents (validator), cleans orphaned bindings from openclaw.json
+- `uninstall` — removes everything: agents, workspaces, default workspaces, bindings, cron jobs, registry, logs. Never removes architect's bot token (default/main).
 
 ## OpenClaw Workspace Files
 
@@ -248,7 +252,7 @@ The native OpenClaw registry (`openclaw agents list`) stores only id, name, work
 
 ### Why a Pipeline of 4 Agents Instead of One
 
-Separation of concerns: analyst decides **what** to do (new/extend/reuse), developer decides **how** (generates files), tester checks **quality**, validator — final audit. Each is specialized and has a strict input/output format (JSON). Retry logic allows developer to fix errors based on tester feedback.
+Separation of concerns: analyst decides **what** to do (new/extend/reuse), developer decides **how** (generates files), reviewer checks **artifact quality** (static), tester checks **real behavior** (agent launch). Each is specialized and has a strict input/output format (JSON). Retry logic allows developer to fix errors based on reviewer and tester feedback.
 
 ### Why Files Are Saved Before `openclaw agents add`
 

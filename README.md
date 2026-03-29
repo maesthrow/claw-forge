@@ -21,14 +21,14 @@ flowchart LR
     subgraph ClawForge["🔧 ClawForge — Orchestration"]
         Architect --> Pipeline
         subgraph Pipeline["Agent Creation Pipeline"]
-            Analyst --> Developer --> Tester --> Validator
+            Analyst --> Developer --> Reviewer --> Deploy2["Deploy"]
+            Deploy2 --> Tester
         end
-        Pipeline --> Deploy
         Registry[("📋 Registry\nSQLite")]
     end
 
     subgraph OpenClaw["⚡ OpenClaw — Runtime"]
-        Deploy --> Gateway["Gateway\nAgents · Memory · Sessions"]
+        Deploy2 --> Gateway["Gateway\nAgents · Memory · Sessions"]
         Gateway --> Bot1(["🤖 Agent Bot 1"])
         Gateway --> Bot2(["🤖 Agent Bot 2"])
         Gateway --> BotN(["🤖 Agent Bot N"])
@@ -37,10 +37,11 @@ flowchart LR
 
 ## What It Does
 
-- **Agent creation pipeline** — 4-stage conveyor (analyst → developer → tester → validator) designs and builds agents from natural language task descriptions
+- **Agent creation pipeline** — 4-stage pipeline (analyst → developer → reviewer → tester) with runtime testing of deployed agents
 - **Self-expansion** — the registry grows with every solved task; new requests can reuse, extend, or build upon existing agents
 - **Per-bot architecture** — each agent gets its own Telegram bot, no shared routing, no switching conflicts
 - **Scheduled automations** — cron-based heartbeats for recurring tasks (daily digests, price monitoring, etc.)
+- **Executable scripts** — developer generates scripts (Python/Node.js) for precise computations, browser automation, API integrations
 - **Task delegation** — architect can delegate tasks to any created agent via sub-agents
 
 ## How It Works
@@ -49,10 +50,10 @@ flowchart LR
 
 | Stage | Role |
 |---|---|
-| **Analyst** | Analyzes the task, checks the registry for existing agents, produces requirements |
-| **Developer** | Generates OpenClaw agent configuration (SOUL.md, skills, heartbeats) |
-| **Tester** | Validates artifacts against the requirements |
-| **Validator** | Final approval before deployment |
+| **Analyst** | Analyzes the task, checks the registry, produces requirements and test cases |
+| **Developer** | Generates agent configuration (SOUL.md, skills, scripts) |
+| **Reviewer** | Static review: validates artifacts, checks for duplicates and platform issues |
+| **Tester** | Deploys the agent and runs a real test — sends a message, evaluates the response |
 
 ### Strategies
 
@@ -78,13 +79,13 @@ ClawForge: Hi! I'm ClawForge, an AI agent architect.
            What would you like to build?
 
 User:      I need an agent that scores resumes.
-ClawForge: [pipeline: analyst → developer → tester → validator]
+ClawForge: [pipeline: analyst → developer → reviewer → tester]
            Agent resume-scorer created!
            Link it to a Telegram bot — send me a token from @BotFather.
 
 User:      7712345678:AAF...
 ClawForge: Done! Bot @ResumeScorer_bot is linked to resume-scorer.
-           Send it /start to get going.
+           Send it a message to get started.
 
 --- in @ResumeScorer_bot ---
 

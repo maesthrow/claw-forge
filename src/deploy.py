@@ -33,7 +33,7 @@ def get_telegram_user_id():
     return os.environ.get("CLAWFORGE_TELEGRAM_USER_ID", "541534272")
 
 
-def create_agent_workspace(name, soul_md, agents_md=None, identity_md=None, skills=None, data_files=None):
+def create_agent_workspace(name, soul_md, agents_md=None, identity_md=None, skills=None, data_files=None, scripts=None):
     """Create workspace directory with SOUL.md, AGENTS.md, IDENTITY.md, skills and data files."""
     workspace = os.path.join(OPENCLAW_WORKSPACES, name)
     os.makedirs(workspace, exist_ok=True)
@@ -62,6 +62,15 @@ def create_agent_workspace(name, soul_md, agents_md=None, identity_md=None, skil
         for fname, content in data_files.items():
             with open(os.path.join(workspace, fname), "w", encoding="utf-8") as f:
                 f.write(content)
+
+    if scripts:
+        scripts_dir = os.path.join(workspace, "scripts")
+        os.makedirs(scripts_dir, exist_ok=True)
+        for filename, content in scripts.items():
+            filepath = os.path.join(scripts_dir, filename)
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.chmod(filepath, 0o755)
 
     return workspace
 
@@ -143,7 +152,7 @@ def _remove_agent_cron_jobs(agent_name):
     return False
 
 
-def update_agent_files(name, soul_md=None, agents_md=None, identity_md=None, skills=None, data_files=None):
+def update_agent_files(name, soul_md=None, agents_md=None, identity_md=None, skills=None, data_files=None, scripts=None):
     """Update files for an existing agent. Only writes provided files."""
     workspace = os.path.join(OPENCLAW_WORKSPACES, name)
     default_workspace = os.path.join(OPENCLAW_HOME, f"workspace-{name}")
@@ -180,6 +189,9 @@ def update_agent_files(name, soul_md=None, agents_md=None, identity_md=None, ski
                     with open(fpath, "w", encoding="utf-8") as f:
                         f.write(content)
 
+    if scripts:
+        install_scripts(name, scripts)
+
 
 def add_skill_to_agent(agent_name, skill_name, skill_content):
     """Add a skill to an existing agent's workspace."""
@@ -188,6 +200,34 @@ def add_skill_to_agent(agent_name, skill_name, skill_content):
     os.makedirs(skill_dir, exist_ok=True)
     with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
         f.write(skill_content)
+
+
+def install_scripts(agent_name, scripts):
+    """Install executable scripts to agent's workspace."""
+    workspace = os.path.join(OPENCLAW_WORKSPACES, agent_name)
+    scripts_dir = os.path.join(workspace, "scripts")
+    os.makedirs(scripts_dir, exist_ok=True)
+    for filename, content in scripts.items():
+        filepath = os.path.join(scripts_dir, filename)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.chmod(filepath, 0o755)
+    # Sync to default workspace
+    default_workspace = os.path.join(OPENCLAW_HOME, f"workspace-{agent_name}")
+    if os.path.exists(default_workspace):
+        default_scripts = os.path.join(default_workspace, "scripts")
+        if os.path.exists(default_scripts):
+            shutil.rmtree(default_scripts)
+        shutil.copytree(scripts_dir, default_scripts)
+
+
+def install_system_deps(deps):
+    """Install system dependencies needed by agent scripts."""
+    for dep in deps:
+        try:
+            run_cmd(f"npm list -g {dep} 2>/dev/null || npm install -g {dep}")
+        except RuntimeError:
+            pass  # Best effort — tester will catch if it doesn't work
 
 
 def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):

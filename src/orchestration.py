@@ -32,8 +32,17 @@ def validate_agent_name(name):
         raise ValueError(f"Invalid agent name: '{name}'. Use lowercase letters, digits, underscores. Start with letter. Max 50 chars.")
 
 
-def build_tester_prompt(requirements, artifacts):
-    """Build tester prompt with current artifacts."""
+def build_reviewer_prompt(requirements, artifacts, previous_soul_md=None):
+    """Build reviewer prompt — static checks on artifacts."""
+    extend_note = ""
+    if previous_soul_md:
+        extend_note = f"""
+Предыдущий SOUL.md агента (до изменений):
+{previous_soul_md}
+
+Проверь: не раздулся ли SOUL.md дублями при обновлении. Если одна и та же инструкция повторяется в нескольких местах — это проблема.
+"""
+
     return f"""Проверь артефакты агента на соответствие требованиям.
 
 Требования:
@@ -41,7 +50,7 @@ def build_tester_prompt(requirements, artifacts):
 
 Артефакты:
 {json.dumps(artifacts, ensure_ascii=False, indent=2)}
-
+{extend_note}
 Проверь:
 1. SOUL.md описывает все capabilities из требований?
 2. Skills покрывают все needs из требований?
@@ -49,6 +58,9 @@ def build_tester_prompt(requirements, artifacts):
 4. Есть ли AGENTS.md с правилами workspace для агента?
 5. Есть ли IDENTITY.md с именем, описанием и эмодзи агента?
 6. Агент автономен — нет команд переключения (/main, /set, switch)?
+7. Нет ли ДУБЛЕЙ — одинаковых по смыслу инструкций в разных местах SOUL.md?
+8. Платформо-специфика: для Telegram не экранировать # (писать #AI, не \\#AI), parse_mode корректен?
+9. YAGNI — нет лишних возможностей за рамками требований?
 
 Верни JSON:
 {{
@@ -60,30 +72,82 @@ def build_tester_prompt(requirements, artifacts):
 Верни ТОЛЬКО JSON."""
 
 
-def build_validator_prompt(requirements, artifacts, test_report):
-    """Build validator prompt with current artifacts."""
-    return f"""Финальная проверка агента перед деплоем.
+def build_tester_prompt(requirements, agent_response):
+    """Build tester prompt — evaluates real agent response."""
+    return f"""Проверь реальный ответ агента на тестовое сообщение.
 
-Требования:
+Тестовое сообщение: {requirements.get('test_message', 'не указано')}
+Ожидаемое поведение: {requirements.get('expected_behavior', 'не указано')}
+
+Реальный ответ агента:
+{agent_response}
+
+Полные требования:
 {json.dumps(requirements, ensure_ascii=False, indent=2)}
 
-Артефакты:
-{json.dumps(artifacts, ensure_ascii=False, indent=2)}
-
-Отчёт тестировщика:
-{json.dumps(test_report, ensure_ascii=False, indent=2)}
+Проверь:
+1. Ответ содержит все ожидаемые элементы из expected_behavior?
+2. Формат соответствует требованиям?
+3. Нет заглушек, "н/д", пустых полей где должны быть данные?
+4. Ответ на правильном языке?
+5. Нет сообщений об ошибках или traceback?
 
 Верни JSON:
 {{
   "approved": true/false,
-  "reason": "причина"
+  "agent_response_preview": "первые 300 символов ответа",
+  "issues": ["конкретные проблемы"],
+  "reason": "общая оценка"
 }}
 
 Верни ТОЛЬКО JSON."""
 
 
+def build_runtime_fix_prompt(artifacts, test_report, agent_response):
+    """Build developer fix prompt based on real agent behavior."""
+    return f"""Тестер проверил реальное поведение агента и нашёл проблемы.
+
+Реальный ответ агента:
+{agent_response[:1000]}
+
+Проблемы от тестера: {json.dumps(test_report.get('issues', []), ensure_ascii=False)}
+Оценка: {test_report.get('reason', '')}
+
+Исходные артефакты:
+{json.dumps(artifacts, ensure_ascii=False, indent=2)}
+
+Исправь артефакты чтобы агент отвечал корректно. Верни обновлённый JSON в том же формате.
+ВАЖНО: не дублируй инструкции, делай точечные правки."""
+
+
+def format_notification(deploy_result, requirements, test_report=None):
+    """Format user notification with test results."""
+    action = deploy_result["action"]
+    name = deploy_result["agent_name"]
+
+    if action == "created":
+        msg = f"Агент '{name}' создан и готов к работе."
+    elif action == "extended":
+        msg = f"Агент '{name}' обновлён."
+    else:
+        msg = f"Операция '{action}' завершена для '{name}'."
+
+    if test_report and test_report.get("approved"):
+        test_msg = requirements.get("test_message", "")
+        reason = test_report.get("reason", "")
+        msg += f"\nТест пройден: отправил \"{test_msg}\" — {reason}"
+    elif test_report and not test_report.get("approved"):
+        issues = test_report.get("issues", [])
+        msg += f"\nТест выявил проблемы: {'; '.join(issues[:2])}"
+
+    if action == "created":
+        msg += "\nЕсли есть токен Telegram-бота — пришли его чтобы привязать."
+
+    return msg
+
+
 def run_pipeline(task_description):
-    """Run the full creation pipeline: analyst -> developer -> tester -> validator -> deploy."""
+    """Run the full creation pipeline: analyst -> developer -> reviewer -> deploy -> tester."""
 
     # 1. Check registry for existing agents
     existing = registry.list_agents()
@@ -99,7 +163,7 @@ def run_pipeline(task_description):
 {{
   "decision": "create_new" | "extend_existing" | "reuse_existing" | "automation_only",
   "agent_name": "имя агента (snake_case, латиница)",
-  "agent_type": "interactive_agent" | "automation" | "skill",
+  "agent_type": "interactive_agent" | "automation",
   "description": "описание на русском",
   "capabilities": ["capability1", "capability2"],
   "extend_agent": "имя существующего агента если decision=extend_existing, иначе null",
@@ -108,7 +172,9 @@ def run_pipeline(task_description):
   "requirements": "детальные требования для разработчика",
   "needs_heartbeat": false,
   "heartbeat_schedule": "cron выражение если needs_heartbeat=true, иначе null",
-  "heartbeat_message": "сообщение для heartbeat если needs_heartbeat=true, иначе null"
+  "heartbeat_message": "сообщение для heartbeat если needs_heartbeat=true, иначе null",
+  "test_message": "тестовое сообщение для проверки агента после деплоя",
+  "expected_behavior": "описание ожидаемого поведения агента при получении test_message"
 }}
 
 ВАЖНО: если needs_heartbeat=true, heartbeat_message должен быть полностью консистентен с форматом сообщения описанным в requirements. Не допускай расхождений (например разный формат: одна строка vs несколько строк).
@@ -117,7 +183,7 @@ def run_pipeline(task_description):
 - Токен Telegram-бота хранится в /root/.openclaw/openclaw.json → channels.telegram.accounts.<agent_name>.botToken. НЕ через переменные окружения.
 - Файлы данных агента: абсолютные пути от /root/.openclaw/workspaces/<agent_name>/. Если файл не существует — создавать с пустой структурой, НЕ падать с ошибкой.
 - Cron-задачи управляются через /root/.openclaw/cron/jobs.json (поле enabled). Агент ДОЛЖЕН управлять cron: включать при первом подписчике, выключать когда подписчиков нет.
-- Cron job создаётся и обновляется ПРОГРАММНО нашим кодом по полям needs_heartbeat, heartbeat_schedule, heartbeat_message. Агент НЕ может сам менять расписание cron. Поэтому: если задача связана с изменением расписания — ОБЯЗАТЕЛЬНО указать needs_heartbeat=true с правильным heartbeat_schedule (cron-выражение, например "0 6 * * *" для ежедневно в 06:00 UTC) и heartbeat_message. Поддерживаемые форматы: */N * * * * (каждые N мин), 0 */N * * * (каждые N час), M H * * * (ежедневно в H:M UTC).
+- РАСПИСАНИЕ: если в задаче есть ЛЮБОЕ указание на расписание ("каждый день", "раз в час", "в 10:00", "ежедневно", "по утрам") — ОБЯЗАТЕЛЬНО ставь needs_heartbeat=true и заполняй heartbeat_schedule (cron-выражение, например "0 6 * * *" для ежедневно в 06:00 UTC) и heartbeat_message. Без исключений. Поддерживаемые форматы: */N * * * * (каждые N мин), 0 */N * * * (каждые N час), M H * * * (ежедневно в H:M UTC).
 - Ответ пользователю — через стандартный ответ агента (OpenClaw доставит). Telegram Bot API — только для рассылки контента подписчикам.
 - Взаимодействие с пользователем — через текстовые сообщения на естественном языке ("подпиши меня", "отпиши меня", "отправь новости").
 - НИКОГДА не включай токены, ключи и секреты в heartbeat_message или requirements. Агент читает токен из openclaw.json самостоятельно.
@@ -183,66 +249,40 @@ def run_pipeline(task_description):
 {current_soul_context}
 Сгенерируй конфигурацию агента по своим инструкциям.
 {heartbeat_note}
+Если задача требует исполняемых скриптов — добавь их в поле "scripts".
+Если скрипты требуют системных зависимостей — добавь их в поле "system_deps".
+
 Верни ТОЛЬКО JSON."""
 
     artifacts = call_agent_with_retry("developer", developer_prompt)
     time.sleep(PIPELINE_STEP_DELAY)
 
-    # 6. Tester + Validator cycle with retry
-    max_tester_retries = 3
-    max_validator_retries = 1
+    # 6. Reviewer — static checks (up to 3 retries)
+    # Save previous SOUL.md for extend comparison
+    previous_soul_md = None
+    if current_soul_context:
+        previous_soul_md = current_soul_context
 
-    for validator_attempt in range(max_validator_retries + 1):
-        # Tester — uses fresh prompt with current artifacts
-        test_report = call_agent_with_retry("tester", build_tester_prompt(requirements, artifacts))
+    max_reviewer_retries = 3
+    for reviewer_attempt in range(max_reviewer_retries + 1):
+        review = call_agent_with_retry("reviewer",
+            build_reviewer_prompt(requirements, artifacts, previous_soul_md))
         time.sleep(PIPELINE_STEP_DELAY)
 
-        # Tester reject → developer fix (max retries)
-        tester_retries = 0
-        while not test_report.get("approved", False) and tester_retries < max_tester_retries:
-            fix_prompt = f"""Тестировщик нашёл проблемы в артефактах.
+        if review.get("approved", False):
+            break
 
-Проблемы: {json.dumps(test_report.get('issues', []), ensure_ascii=False)}
-Предложения: {json.dumps(test_report.get('fixes', []), ensure_ascii=False)}
+        if reviewer_attempt < max_reviewer_retries:
+            fix_prompt = f"""Ревьюер нашёл проблемы в артефактах.
+
+Проблемы: {json.dumps(review.get('issues', []), ensure_ascii=False)}
+Предложения: {json.dumps(review.get('fixes', []), ensure_ascii=False)}
 
 Исходные артефакты:
 {json.dumps(artifacts, ensure_ascii=False, indent=2)}
 
 Исправь и верни обновлённый JSON в том же формате.
-ВАЖНО: агент должен быть автономным, без команд переключения."""
-
-            artifacts = call_agent_with_retry("developer", fix_prompt)
-            time.sleep(PIPELINE_STEP_DELAY)
-            test_report = call_agent_with_retry("tester", build_tester_prompt(requirements, artifacts))
-            time.sleep(PIPELINE_STEP_DELAY)
-            tester_retries += 1
-
-        if not test_report.get("approved", False):
-            return {
-                "action": "rejected",
-                "reason": f"Тестировщик не одобрил после {max_tester_retries} попыток исправления.",
-                "message": "Не удалось создать агента: тестировщик нашёл неисправимые проблемы."
-            }
-
-        # Validator — uses fresh prompt with current artifacts and test report
-        validation = call_agent_with_retry("validator", build_validator_prompt(requirements, artifacts, test_report))
-
-        if validation.get("approved", False):
-            break
-
-        time.sleep(PIPELINE_STEP_DELAY)
-
-        # Validator rejected → retry with fix
-        if validator_attempt < max_validator_retries:
-            fix_prompt = f"""Валидатор отклонил агента.
-
-Причина: {validation.get('reason', 'не указана')}
-
-Исходные артефакты:
-{json.dumps(artifacts, ensure_ascii=False, indent=2)}
-
-Исправь причину отказа и верни обновлённый JSON в том же формате.
-ВАЖНО: агент должен быть автономным, без команд переключения."""
+ВАЖНО: не дублируй инструкции, агент должен быть автономным."""
 
             artifacts = call_agent_with_retry("developer", fix_prompt)
             time.sleep(PIPELINE_STEP_DELAY)
@@ -250,17 +290,73 @@ def run_pipeline(task_description):
 
         return {
             "action": "rejected",
-            "reason": validation.get("reason", "Валидатор отклонил"),
-            "message": f"Не удалось создать агента: {validation.get('reason')}. Попробуйте уточнить задачу."
+            "reason": f"Ревьюер не одобрил после {max_reviewer_retries} попыток.",
+            "message": "Не удалось создать агента: ревьюер нашёл неисправимые проблемы."
         }
 
     # 7. Deploy
     agent_name = requirements["agent_name"]
 
     if requirements.get("decision") == "extend_existing":
-        return deploy_extension(requirements, artifacts)
+        deploy_result = deploy_extension(requirements, artifacts)
     else:
-        return deploy_new_agent(requirements, artifacts)
+        deploy_result = deploy_new_agent(requirements, artifacts)
+
+    # Install scripts and system deps
+    if artifacts.get("scripts"):
+        deploy.install_scripts(agent_name if requirements.get("decision") != "extend_existing"
+                               else requirements["extend_agent"], artifacts["scripts"])
+    if artifacts.get("system_deps"):
+        deploy.install_system_deps(artifacts["system_deps"])
+
+    # 8. Tester — real agent run (up to 2 retries)
+    test_message = requirements.get("test_message")
+    test_report = None
+    actual_agent = requirements.get("extend_agent") if requirements.get("decision") == "extend_existing" else agent_name
+
+    if test_message:
+        max_tester_retries = 2
+        for tester_attempt in range(max_tester_retries + 1):
+            try:
+                agent_response = deploy.call_agent(actual_agent, test_message)
+            except RuntimeError as e:
+                agent_response = f"Ошибка вызова агента: {str(e)[:300]}"
+
+            test_report = call_agent_with_retry("tester",
+                build_tester_prompt(requirements, agent_response))
+            time.sleep(PIPELINE_STEP_DELAY)
+
+            if test_report.get("approved", False):
+                break
+
+            if tester_attempt < max_tester_retries:
+                # Developer fixes based on real response
+                artifacts = call_agent_with_retry("developer",
+                    build_runtime_fix_prompt(artifacts, test_report, agent_response))
+                time.sleep(PIPELINE_STEP_DELAY)
+
+                # Reviewer re-checks
+                review = call_agent_with_retry("reviewer",
+                    build_reviewer_prompt(requirements, artifacts, previous_soul_md))
+                time.sleep(PIPELINE_STEP_DELAY)
+
+                # Re-deploy updated artifacts
+                deploy.update_agent_files(
+                    name=actual_agent,
+                    soul_md=artifacts.get("soul_md"),
+                    agents_md=artifacts.get("agents_md"),
+                    identity_md=artifacts.get("identity_md"),
+                    skills=artifacts.get("skills"),
+                    data_files=artifacts.get("data_files"),
+                    scripts=artifacts.get("scripts")
+                )
+                if artifacts.get("scripts"):
+                    deploy.install_scripts(actual_agent, artifacts["scripts"])
+                continue
+
+    # 9. Format notification with test results
+    deploy_result["message"] = format_notification(deploy_result, requirements, test_report)
+    return deploy_result
 
 
 def deploy_extension(requirements, artifacts):
@@ -274,7 +370,8 @@ def deploy_extension(requirements, artifacts):
         agents_md=artifacts.get("agents_md"),
         identity_md=artifacts.get("identity_md"),
         skills=artifacts.get("skills"),
-        data_files=artifacts.get("data_files")
+        data_files=artifacts.get("data_files"),
+        scripts=artifacts.get("scripts")
     )
 
     # Update or create heartbeat (same name as create — idempotent)
@@ -317,7 +414,8 @@ def deploy_new_agent(requirements, artifacts):
         agents_md=artifacts.get("agents_md"),
         identity_md=artifacts.get("identity_md"),
         skills=artifacts.get("skills", {}),
-        data_files=artifacts.get("data_files")
+        data_files=artifacts.get("data_files"),
+        scripts=artifacts.get("scripts")
     )
     deploy.register_agent(agent_name, workspace)
 

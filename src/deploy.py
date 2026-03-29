@@ -286,7 +286,7 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
 
 def clear_pipeline_sessions():
     """Clear session history for all pipeline agents to prevent context buildup."""
-    for agent in ["analyst", "developer", "tester", "validator"]:
+    for agent in ["analyst", "developer", "reviewer", "tester"]:
         sessions_dir = os.path.join(OPENCLAW_HOME, "agents", agent, "sessions")
         if os.path.exists(sessions_dir):
             shutil.rmtree(sessions_dir, ignore_errors=True)

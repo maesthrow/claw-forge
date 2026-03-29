@@ -126,9 +126,19 @@ def format_notification(deploy_result, requirements, test_report=None):
     name = deploy_result["agent_name"]
 
     if action == "created":
-        msg = f"Агент '{name}' создан и готов к работе."
+        if test_report and test_report.get("approved"):
+            msg = f"Агент '{name}' создан и готов к работе."
+        elif test_report and not test_report.get("approved"):
+            msg = f"Агент '{name}' создан."
+        else:
+            msg = f"Агент '{name}' создан и готов к работе."
     elif action == "extended":
         msg = f"Агент '{name}' обновлён."
+    elif action == "rejected":
+        issues = deploy_result.get("issues", [])
+        msg = f"Не удалось создать агента.\nПроблемы: {'; '.join(issues[:3])}"
+        msg += "\nПопробуй уточнить задачу."
+        return msg
     else:
         msg = f"Операция '{action}' завершена для '{name}'."
 
@@ -139,7 +149,8 @@ def format_notification(deploy_result, requirements, test_report=None):
         msg += f"\nТест пройден: отправил \"{test_msg}\" — ответ соответствует требованиям."
     elif test_report and not test_report.get("approved"):
         issues = test_report.get("issues", [])
-        msg += f"\nТест выявил проблемы: {'; '.join(issues[:2])}"
+        msg += f"\nТест выявил замечания: {'; '.join(issues[:2])}"
+        msg += "\nМожешь проверить агента и при необходимости доработать."
 
     if action == "created":
         msg += "\nЕсли есть токен Telegram-бота — пришли его чтобы привязать."
@@ -190,6 +201,7 @@ def run_pipeline(task_description):
 - НИКОГДА не включай токены, ключи и секреты в heartbeat_message или requirements. Агент читает токен из openclaw.json самостоятельно.
 - Если задача требует точных вычислений, скриншотов, обработки файлов или персистентного хранения данных — укажи в requirements что нужен exec-скрипт.
 - В expected_behavior описывай формат и структуру ответа, не конкретные вычисленные значения. LLM-тестер не может верифицировать точность вычислений.
+- test_message должен работать через CLI без Telegram-контекста (нет chat_id). Для агентов с подпиской тестируй запрос данных, не операции подписки.
 
 Верни ТОЛЬКО JSON, без пояснений."""
 
@@ -291,10 +303,15 @@ def run_pipeline(task_description):
             time.sleep(PIPELINE_STEP_DELAY)
             continue
 
+        reviewer_issues = review.get("issues", ["неизвестная проблема"])
         return {
             "action": "rejected",
-            "reason": f"Ревьюер не одобрил после {max_reviewer_retries} попыток.",
-            "message": "Не удалось создать агента: ревьюер нашёл неисправимые проблемы."
+            "agent_name": requirements.get("agent_name", "?"),
+            "issues": reviewer_issues,
+            "message": format_notification(
+                {"action": "rejected", "agent_name": requirements.get("agent_name", "?"), "issues": reviewer_issues},
+                requirements
+            )
         }
 
     # 7. Deploy

@@ -187,16 +187,38 @@ def update():
     unprotect_file(os.path.join(MAIN_WORKSPACE, "IDENTITY.md"))
     unprotect_file(os.path.join(MAIN_WORKSPACE, "skills", "claw-forge", "SKILL.md"))
 
-    # Update base agents
+    # Update or create base agents
     for agent in BASE_AGENTS:
         workspace = os.path.join(WORKSPACES_DIR, agent)
-        if os.path.exists(workspace):
-            src_dir = os.path.join(SCRIPT_DIR, "agents", agent)
+        src_dir = os.path.join(SCRIPT_DIR, "agents", agent)
+
+        if not os.path.exists(workspace):
+            # New agent — create workspace and register in OpenClaw
+            print(f"  {agent} not found, creating...")
+            os.makedirs(workspace, exist_ok=True)
             for fname in os.listdir(src_dir):
                 src = os.path.join(src_dir, fname)
                 if os.path.isfile(src):
                     shutil.copy2(src, os.path.join(workspace, fname))
-            # Sync to workspace-<name>
+            run_cmd(f'openclaw agents add {agent} --workspace "{workspace}" --non-interactive')
+            # Re-copy (openclaw agents add overwrites with defaults)
+            for fname in os.listdir(src_dir):
+                src = os.path.join(src_dir, fname)
+                if os.path.isfile(src):
+                    shutil.copy2(src, os.path.join(workspace, fname))
+            default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{agent}")
+            if os.path.exists(default_ws):
+                for fname in os.listdir(src_dir):
+                    src = os.path.join(src_dir, fname)
+                    if os.path.isfile(src):
+                        shutil.copy2(src, os.path.join(default_ws, fname))
+            print(f"  {agent} created")
+        else:
+            # Existing agent — update files
+            for fname in os.listdir(src_dir):
+                src = os.path.join(src_dir, fname)
+                if os.path.isfile(src):
+                    shutil.copy2(src, os.path.join(workspace, fname))
             default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{agent}")
             if os.path.exists(default_ws):
                 for fname in os.listdir(workspace):
@@ -204,6 +226,25 @@ def update():
                     if os.path.isfile(src):
                         shutil.copy2(src, os.path.join(default_ws, fname))
             print(f"  {agent} updated")
+
+    # Remove agents that are no longer in BASE_AGENTS
+    if os.path.exists(WORKSPACES_DIR):
+        for name in os.listdir(WORKSPACES_DIR):
+            ws_path = os.path.join(WORKSPACES_DIR, name)
+            if os.path.isdir(ws_path) and name not in BASE_AGENTS:
+                # Check if it's a pipeline agent (has no registry entry = internal agent)
+                # Don't remove user-created agents (they're in the registry)
+                agent_src = os.path.join(SCRIPT_DIR, "agents", name)
+                if not os.path.exists(agent_src):
+                    # Was a pipeline agent but removed from BASE_AGENTS
+                    print(f"  {name} removed from pipeline, cleaning up...")
+                    run_cmd(f"openclaw agents delete {name} --force")
+                    shutil.rmtree(ws_path, ignore_errors=True)
+                    agent_state = os.path.join(OPENCLAW_HOME, "agents", name)
+                    shutil.rmtree(agent_state, ignore_errors=True)
+                    default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{name}")
+                    shutil.rmtree(default_ws, ignore_errors=True)
+                    print(f"  {name} removed")
 
     # Update architect
     src_dir = os.path.join(SCRIPT_DIR, "agents", "architect")

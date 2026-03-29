@@ -227,24 +227,22 @@ def update():
                         shutil.copy2(src, os.path.join(default_ws, fname))
             print(f"  {agent} updated")
 
-    # Remove agents that are no longer in BASE_AGENTS
-    if os.path.exists(WORKSPACES_DIR):
-        for name in os.listdir(WORKSPACES_DIR):
-            ws_path = os.path.join(WORKSPACES_DIR, name)
-            if os.path.isdir(ws_path) and name not in BASE_AGENTS:
-                # Check if it's a pipeline agent (has no registry entry = internal agent)
-                # Don't remove user-created agents (they're in the registry)
-                agent_src = os.path.join(SCRIPT_DIR, "agents", name)
-                if not os.path.exists(agent_src):
-                    # Was a pipeline agent but removed from BASE_AGENTS
-                    print(f"  {name} removed from pipeline, cleaning up...")
-                    run_cmd(f"openclaw agents delete {name} --force")
-                    shutil.rmtree(ws_path, ignore_errors=True)
-                    agent_state = os.path.join(OPENCLAW_HOME, "agents", name)
-                    shutil.rmtree(agent_state, ignore_errors=True)
-                    default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{name}")
-                    shutil.rmtree(default_ws, ignore_errors=True)
-                    print(f"  {name} removed")
+    # Remove OLD pipeline agents that are no longer in BASE_AGENTS
+    # IMPORTANT: only remove agents that were previously pipeline agents,
+    # never touch user-created agents. We detect old pipeline agents by
+    # checking a hardcoded list of known previous pipeline agent names.
+    OLD_PIPELINE_AGENTS = ["validator"]  # agents removed from BASE_AGENTS in past updates
+    for name in OLD_PIPELINE_AGENTS:
+        ws_path = os.path.join(WORKSPACES_DIR, name)
+        if os.path.exists(ws_path):
+            print(f"  {name} removed from pipeline, cleaning up...")
+            run_cmd(f"openclaw agents delete {name} --force")
+            shutil.rmtree(ws_path, ignore_errors=True)
+            agent_state = os.path.join(OPENCLAW_HOME, "agents", name)
+            shutil.rmtree(agent_state, ignore_errors=True)
+            default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{name}")
+            shutil.rmtree(default_ws, ignore_errors=True)
+            print(f"  {name} removed")
 
     # Update architect
     src_dir = os.path.join(SCRIPT_DIR, "agents", "architect")

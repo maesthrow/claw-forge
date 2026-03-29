@@ -188,6 +188,7 @@ def run_pipeline(task_description):
   "needs_heartbeat": false,
   "heartbeat_schedule": "cron выражение если needs_heartbeat=true, иначе null",
   "heartbeat_message": "сообщение для heartbeat если needs_heartbeat=true, иначе null",
+  "heartbeat_enabled": "true если cron должен быть включён сразу (публикация в канал), false если агент включает сам при первом подписчике",
   "test_message": "тестовое сообщение для проверки агента после деплоя",
   "expected_behavior": "описание ожидаемого поведения агента при получении test_message"
 }}
@@ -232,7 +233,8 @@ def run_pipeline(task_description):
             cron_expr=requirements["heartbeat_schedule"],
             agent_name=requirements.get("extend_agent", "orchestrator"),
             message=requirements["heartbeat_message"],
-            telegram_user_id=telegram_user_id
+            telegram_user_id=telegram_user_id,
+            enabled=requirements.get("heartbeat_enabled", False)
         )
         registry.add_agent(
             name=requirements["agent_name"],
@@ -411,7 +413,8 @@ def deploy_extension(requirements, artifacts):
                 cron_expr=requirements["heartbeat_schedule"],
                 agent_name=target_agent,
                 message=requirements["heartbeat_message"],
-                telegram_user_id=telegram_user_id
+                telegram_user_id=telegram_user_id,
+                enabled=requirements.get("heartbeat_enabled", False)
             )
         except Exception as e:
             heartbeat_note = f" Heartbeat не обновлён: {str(e)[:200]}"
@@ -463,7 +466,8 @@ def deploy_new_agent(requirements, artifacts):
                 cron_expr=requirements["heartbeat_schedule"],
                 agent_name=agent_name,
                 message=requirements["heartbeat_message"],
-                telegram_user_id=telegram_user_id
+                telegram_user_id=telegram_user_id,
+                enabled=requirements.get("heartbeat_enabled", False)
             )
         except Exception as e:
             heartbeat_note = f" Heartbeat не создан: {str(e)[:200]}"

@@ -230,7 +230,7 @@ def install_system_deps(deps):
             pass  # Best effort — tester will catch if it doesn't work
 
 
-def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
+def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id, enabled=False):
     """Create a cron job by writing directly to OpenClaw's jobs.json.
 
     Uses native cron schedule format (kind: "cron") which OpenClaw
@@ -259,7 +259,7 @@ def add_heartbeat(name, cron_expr, agent_name, message, telegram_user_id):
     data["jobs"].append({
         "id": str(uuid.uuid4()),
         "name": name,
-        "enabled": False,  # Agent enables it on first subscriber
+        "enabled": enabled,
         "agentId": agent_name,
         "sessionTarget": "isolated",
         "wakeMode": "now",

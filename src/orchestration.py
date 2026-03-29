@@ -402,7 +402,7 @@ def deploy_extension(requirements, artifacts):
         try:
             telegram_user_id = deploy.get_telegram_user_id()
             deploy.add_heartbeat(
-                name=f"{target_agent}-heartbeat",
+                name=target_agent,
                 cron_expr=requirements["heartbeat_schedule"],
                 agent_name=target_agent,
                 message=requirements["heartbeat_message"],
@@ -454,7 +454,7 @@ def deploy_new_agent(requirements, artifacts):
         try:
             telegram_user_id = deploy.get_telegram_user_id()
             deploy.add_heartbeat(
-                name=f"{agent_name}-heartbeat",
+                name=agent_name,
                 cron_expr=requirements["heartbeat_schedule"],
                 agent_name=agent_name,
                 message=requirements["heartbeat_message"],

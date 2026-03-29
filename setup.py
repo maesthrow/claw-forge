@@ -232,17 +232,38 @@ def update():
     # never touch user-created agents. We detect old pipeline agents by
     # checking a hardcoded list of known previous pipeline agent names.
     OLD_PIPELINE_AGENTS = ["validator"]  # agents removed from BASE_AGENTS in past updates
+    sys.path.insert(0, os.path.join(SCRIPT_DIR, "src"))
+    import deploy as deploy_mod
     for name in OLD_PIPELINE_AGENTS:
         ws_path = os.path.join(WORKSPACES_DIR, name)
         if os.path.exists(ws_path):
             print(f"  {name} removed from pipeline, cleaning up...")
             run_cmd(f"openclaw agents delete {name} --force")
+            deploy_mod.unbind_agent_bot(name)
             shutil.rmtree(ws_path, ignore_errors=True)
             agent_state = os.path.join(OPENCLAW_HOME, "agents", name)
             shutil.rmtree(agent_state, ignore_errors=True)
             default_ws = os.path.join(OPENCLAW_HOME, f"workspace-{name}")
             shutil.rmtree(default_ws, ignore_errors=True)
             print(f"  {name} removed")
+
+    # Clean orphaned bindings — agents in openclaw.json but without workspace
+    import registry
+    registry.init_db()
+    registered_agents = {a["name"] for a in registry.list_agents()}
+    all_known = set(BASE_AGENTS) | registered_agents | {"main"}
+    config_path = os.path.join(OPENCLAW_HOME, "openclaw.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        accounts = config.get("channels", {}).get("telegram", {}).get("accounts", {})
+        orphaned = [name for name in accounts if name not in all_known]
+        if orphaned:
+            for name in orphaned:
+                deploy_mod.unbind_agent_bot(name)
+                print(f"  {name} orphaned binding removed")
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
 
     # Update architect
     src_dir = os.path.join(SCRIPT_DIR, "agents", "architect")
@@ -301,6 +322,7 @@ def uninstall():
     for agent in BASE_AGENTS:
         print(f"  Removing agent {agent}...")
         run_cmd(f"openclaw agents delete {agent} --force")
+        deploy_mod.unbind_agent_bot(agent)
         workspace = os.path.join(WORKSPACES_DIR, agent)
         shutil.rmtree(workspace, ignore_errors=True)
         agent_state = os.path.join(OPENCLAW_HOME, "agents", agent)

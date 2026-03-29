@@ -15,23 +15,24 @@ Describe a task in Telegram — ClawForge designs, builds, tests, and deploys a 
 ClawForge is the orchestration brain. OpenClaw is the runtime.
 
 ```mermaid
-flowchart LR
+flowchart TB
     User(["👤 Telegram"]) --> Architect
 
     subgraph ClawForge["🔧 ClawForge — Orchestration"]
-        Architect --> Pipeline
+        Architect --> Analyst
         subgraph Pipeline["Agent Creation Pipeline"]
-            Analyst --> Developer --> Reviewer --> Deploy2["Deploy"]
-            Deploy2 --> Tester
+            Analyst --> Developer --> Reviewer
         end
-        Registry[("📋 Registry\nSQLite")]
+        Reviewer --> Deploy
+        Deploy --> Tester
+        Registry[("📋 Registry")]
     end
 
     subgraph OpenClaw["⚡ OpenClaw — Runtime"]
-        Deploy2 --> Gateway["Gateway\nAgents · Memory · Sessions"]
-        Gateway --> Bot1(["🤖 Agent Bot 1"])
-        Gateway --> Bot2(["🤖 Agent Bot 2"])
-        Gateway --> BotN(["🤖 Agent Bot N"])
+        Deploy --> Gateway["Gateway\nAgents · Memory · Sessions"]
+        Gateway --> Bot1(["🤖 Bot 1"])
+        Gateway --> Bot2(["🤖 Bot 2"])
+        Gateway --> BotN(["🤖 Bot N"])
     end
 ```
 

@@ -360,7 +360,13 @@ def bind_agent_to_bot(agent_name, bot_token, telegram_user_id):
 
 
 def unbind_agent_bot(agent_name):
-    """Remove a Telegram bot binding for an agent."""
+    """Remove a Telegram bot binding for an agent.
+
+    NEVER removes 'default' or 'main' — these are the architect's core config.
+    """
+    if agent_name in ("default", "main"):
+        return  # Protect architect's bot token and binding
+
     config_path = os.path.join(OPENCLAW_HOME, "openclaw.json")
 
     try:

@@ -120,8 +120,8 @@ def build_runtime_fix_prompt(artifacts, test_report, agent_response):
 ВАЖНО: не дублируй инструкции, делай точечные правки."""
 
 
-def format_notification(deploy_result, requirements, test_report=None):
-    """Format user notification with test results."""
+def format_notification(deploy_result, requirements, test_report=None, reviewer_issues=None):
+    """Format user notification with test results and reviewer notes."""
     action = deploy_result["action"]
     name = deploy_result["agent_name"]
 
@@ -151,6 +151,9 @@ def format_notification(deploy_result, requirements, test_report=None):
         issues = test_report.get("issues", [])
         msg += f"\nТест выявил замечания: {'; '.join(issues[:2])}"
         msg += "\nМожешь проверить агента и при необходимости доработать."
+
+    if reviewer_issues:
+        msg += f"\nЗамечания ревьюера: {'; '.join(reviewer_issues[:3])}"
 
     if action == "created":
         msg += "\nЕсли есть токен Telegram-бота — пришли его чтобы привязать."
@@ -279,12 +282,14 @@ def run_pipeline(task_description):
         previous_soul_md = current_soul_context
 
     max_reviewer_retries = 3
+    reviewer_issues = []
     for reviewer_attempt in range(max_reviewer_retries + 1):
         review = call_agent_with_retry("reviewer",
             build_reviewer_prompt(requirements, artifacts, previous_soul_md))
         time.sleep(PIPELINE_STEP_DELAY)
 
         if review.get("approved", False):
+            reviewer_issues = review.get("issues", [])
             break
 
         if reviewer_attempt < max_reviewer_retries:
@@ -377,7 +382,7 @@ def run_pipeline(task_description):
                 continue
 
     # 9. Format notification with test results
-    deploy_result["message"] = format_notification(deploy_result, requirements, test_report)
+    deploy_result["message"] = format_notification(deploy_result, requirements, test_report, reviewer_issues)
     return deploy_result
 
 

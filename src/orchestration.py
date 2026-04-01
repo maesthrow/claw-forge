@@ -32,15 +32,96 @@ def validate_agent_name(name):
         raise ValueError(f"Invalid agent name: '{name}'. Use lowercase letters, digits, underscores. Start with letter. Max 50 chars.")
 
 
-def build_reviewer_prompt(requirements, artifacts, previous_soul_md=None):
+def load_agent_files(workspace_path):
+    """Load all agent files from workspace for context passing.
+
+    Returns dict with file contents:
+    {
+        "SOUL.md": "...",
+        "AGENTS.md": "...",
+        "IDENTITY.md": "...",
+        "skills": {"skill-name/SKILL.md": "..."},
+        "scripts": {"script.js": "..."}
+    }
+    """
+    files = {}
+
+    # Core markdown files
+    for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
+        fpath = os.path.join(workspace_path, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                files[fname] = f.read()
+        except FileNotFoundError:
+            pass
+
+    # Skills
+    skills = {}
+    skills_dir = os.path.join(workspace_path, "skills")
+    if os.path.isdir(skills_dir):
+        for skill_name in os.listdir(skills_dir):
+            skill_md = os.path.join(skills_dir, skill_name, "SKILL.md")
+            try:
+                with open(skill_md, "r", encoding="utf-8") as f:
+                    skills[f"skills/{skill_name}/SKILL.md"] = f.read()
+            except FileNotFoundError:
+                pass
+    if skills:
+        files["skills"] = skills
+
+    # Scripts
+    scripts = {}
+    scripts_dir = os.path.join(workspace_path, "scripts")
+    if os.path.isdir(scripts_dir):
+        for script_name in os.listdir(scripts_dir):
+            script_path = os.path.join(scripts_dir, script_name)
+            if os.path.isfile(script_path):
+                try:
+                    with open(script_path, "r", encoding="utf-8") as f:
+                        scripts[f"scripts/{script_name}"] = f.read()
+                except (FileNotFoundError, UnicodeDecodeError):
+                    pass
+    if scripts:
+        files["scripts"] = scripts
+
+    return files
+
+
+def format_agent_files_for_prompt(files, label):
+    """Format loaded agent files into a prompt block.
+
+    Args:
+        files: dict from load_agent_files()
+        label: context label, e.g. "Текущие файлы агента (ОБНОВИ их, не переписывай с нуля)"
+    """
+    parts = [f"\n{label}:\n"]
+
+    # Core files
+    for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
+        if fname in files:
+            parts.append(f"=== {fname} ===\n{files[fname]}\n")
+
+    # Skills
+    if "skills" in files:
+        for skill_path, content in files["skills"].items():
+            parts.append(f"=== {skill_path} ===\n{content}\n")
+
+    # Scripts
+    if "scripts" in files:
+        for script_path, content in files["scripts"].items():
+            parts.append(f"=== {script_path} ===\n{content}\n")
+
+    return "\n".join(parts)
+
+
+def build_reviewer_prompt(requirements, artifacts, previous_agent_context=None):
     """Build reviewer prompt — static checks on artifacts."""
     extend_note = ""
-    if previous_soul_md:
+    if previous_agent_context:
         extend_note = f"""
-Предыдущий SOUL.md агента (до изменений):
-{previous_soul_md}
+{previous_agent_context}
 
-Проверь: не раздулся ли SOUL.md дублями при обновлении. Если одна и та же инструкция повторяется в нескольких местах — это проблема.
+Проверь: не раздулись ли файлы дублями при обновлении. Если одна и та же инструкция повторяется в нескольких местах — это проблема. Если skills или scripts не изменились — они должны остаться идентичными оригиналу.
 """
 
     return f"""Проверь артефакты агента на соответствие требованиям.
@@ -252,21 +333,49 @@ def run_pipeline(task_description):
     # 5. Developer: generate artifacts
     heartbeat_note = "Агент использует heartbeat — применяй правила heartbeat из своих инструкций." if requirements.get("needs_heartbeat") else ""
 
-    # For extend: include current SOUL.md so developer can update it
-    current_soul_context = ""
+    # For extend: include all current agent files so developer can update them
+    current_agent_context = ""
+    previous_agent_files = None
     if requirements.get("decision") == "extend_existing" and requirements.get("extend_agent"):
         agent_info = registry.get_agent(requirements["extend_agent"])
         if agent_info and agent_info.get("workspace_path"):
-            soul_path = os.path.join(agent_info["workspace_path"], "SOUL.md")
-            try:
-                with open(soul_path, "r", encoding="utf-8") as f:
-                    current_soul_context = f"\nТекущий SOUL.md агента (обнови его, не пиши с нуля):\n{f.read()}\n"
-            except FileNotFoundError:
-                pass
+            previous_agent_files = load_agent_files(agent_info["workspace_path"])
+            if previous_agent_files:
+                current_agent_context = format_agent_files_for_prompt(
+                    previous_agent_files,
+                    "Текущие файлы агента (ОБНОВИ их, не переписывай с нуля)"
+                )
+
+    # For create_new: load reference agent files if specified
+    reference_context = ""
+    if requirements.get("decision") == "create_new" and requirements.get("reference_agents"):
+        ref_parts = []
+        for ref_name in requirements["reference_agents"]:
+            ref_agent = registry.get_agent(ref_name)
+            if ref_agent and ref_agent.get("workspace_path"):
+                ref_files = load_agent_files(ref_agent["workspace_path"])
+                if ref_files:
+                    ref_parts.append(f"--- Агент: {ref_name} ---\n")
+                    for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
+                        if fname in ref_files:
+                            ref_parts.append(f"=== {fname} ===\n{ref_files[fname]}\n")
+                    if "skills" in ref_files:
+                        for skill_path, content in ref_files["skills"].items():
+                            ref_parts.append(f"=== {skill_path} ===\n{content}\n")
+                    if "scripts" in ref_files:
+                        for script_path, content in ref_files["scripts"].items():
+                            ref_parts.append(f"=== {script_path} ===\n{content}\n")
+        if ref_parts:
+            reference_context = (
+                "\nФайлы похожего агента для РЕФЕРЕНСА "
+                "(используй как образец структуры и стиля, "
+                "но создавай новые файлы под новые требования, НЕ копируй):\n\n"
+                + "\n".join(ref_parts)
+            )
 
     developer_prompt = f"""Требования от аналитика:
 {json.dumps(requirements, ensure_ascii=False, indent=2)}
-{current_soul_context}
+{current_agent_context}{reference_context}
 Сгенерируй конфигурацию агента по своим инструкциям.
 {heartbeat_note}
 Если задача требует исполняемых скриптов — добавь их в поле "scripts".
@@ -278,16 +387,19 @@ def run_pipeline(task_description):
     time.sleep(PIPELINE_STEP_DELAY)
 
     # 6. Reviewer — static checks (up to 3 retries)
-    # Save previous SOUL.md for extend comparison
-    previous_soul_md = None
-    if current_soul_context:
-        previous_soul_md = current_soul_context
+    # Save previous agent files for extend comparison by reviewer
+    previous_agent_context = None
+    if previous_agent_files:
+        previous_agent_context = format_agent_files_for_prompt(
+            previous_agent_files,
+            "Предыдущие файлы агента (до изменений)"
+        )
 
     max_reviewer_retries = 3
     reviewer_issues = []
     for reviewer_attempt in range(max_reviewer_retries + 1):
         review = call_agent_with_retry("reviewer",
-            build_reviewer_prompt(requirements, artifacts, previous_soul_md))
+            build_reviewer_prompt(requirements, artifacts, previous_agent_context))
         time.sleep(PIPELINE_STEP_DELAY)
 
         if review.get("approved", False):
@@ -366,7 +478,7 @@ def run_pipeline(task_description):
 
                 # Reviewer re-checks
                 review = call_agent_with_retry("reviewer",
-                    build_reviewer_prompt(requirements, artifacts, previous_soul_md))
+                    build_reviewer_prompt(requirements, artifacts, previous_agent_context))
                 time.sleep(PIPELINE_STEP_DELAY)
 
                 # Re-deploy updated artifacts

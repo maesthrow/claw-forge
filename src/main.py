@@ -202,8 +202,9 @@ def cmd_delete(args):
     deploy.delete_agent(args.agent)
     registry.remove_agent(args.agent)
 
-    # Gateway hot-reloads after unbind, which can interrupt delivery.
-    time.sleep(2)
+    # Gateway hot-reloads after unbind + restart after cron cleanup.
+    # 5s ensures gateway fully restarts before send_notification.
+    time.sleep(5)
     deploy.send_notification(
         "telegram", deploy.get_telegram_user_id(),
         f"Агент '{args.agent}' удалён."

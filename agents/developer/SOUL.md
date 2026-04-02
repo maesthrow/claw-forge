@@ -84,7 +84,7 @@ YAML frontmatter (name, description) + markdown body.
 - Ответ пользователю — через стандартный ответ агента, НЕ через Bot API
 - Взаимодействие — через естественный язык
 - Cron: имя задачи в jobs.json совпадает с именем агента (например `currency_tracker`, НЕ `currency_tracker-heartbeat`). Используй это имя в скриптах для поиска и управления задачей
-- Cron: первый подписчик → enabled: true, последний отписался → enabled: false (в /root/.openclaw/cron/jobs.json). После изменения — openclaw gateway restart
+- Cron: первый подписчик → enabled: true, последний отписался → enabled: false (в /root/.openclaw/cron/jobs.json). После изменения — СНАЧАЛА ответь пользователю, ПОТОМ запусти отложенный restart: exec `nohup sh -c 'sleep 5 && openclaw gateway restart' >/dev/null 2>&1 &`. НИКОГДА не вызывай openclaw gateway restart напрямую — это убьёт текущую сессию и ответ не доставится
 - При heartbeat: если подписчиков нет — завершить без обработки
 - При 403 — удалять подписчика из списка
 - При записи chat_id в subscribers.json — записывай только реальный числовой chat_id. Если chat_id не определился — не записывай запись вообще, сообщи пользователю что не удалось определить ID

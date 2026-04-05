@@ -52,3 +52,59 @@ def _next_version_number(manifest):
     if not manifest["versions"]:
         return 1
     return max(v["number"] for v in manifest["versions"]) + 1
+
+
+def _should_skip(name, is_dir):
+    """Check if file/dir should be excluded from snapshot (blacklist)."""
+    if is_dir:
+        return name in BLACKLISTED_DIRS
+    return name in OPENCLAW_DEFAULT_FILES or name in BLACKLISTED_FILES
+
+
+def _copy_workspace_to_snapshot(workspace, snapshot_dir):
+    """Copy workspace files to snapshot dir, respecting blacklist."""
+    os.makedirs(snapshot_dir, exist_ok=True)
+    for entry in os.listdir(workspace):
+        src = os.path.join(workspace, entry)
+        if os.path.isdir(src):
+            if _should_skip(entry, is_dir=True):
+                continue
+            shutil.copytree(src, os.path.join(snapshot_dir, entry))
+        elif os.path.isfile(src):
+            if _should_skip(entry, is_dir=False):
+                continue
+            shutil.copy2(src, os.path.join(snapshot_dir, entry))
+
+
+def _copy_snapshot_to_workspace(snapshot_dir, workspace):
+    """Restore snapshot files into workspace.
+
+    First removes managed files from workspace (whitelist protects OpenClaw defaults),
+    then copies snapshot contents on top.
+    """
+    # Remove managed files/dirs from workspace
+    for entry in os.listdir(workspace):
+        path = os.path.join(workspace, entry)
+        if os.path.isdir(path):
+            if _should_skip(entry, is_dir=True):
+                continue
+            shutil.rmtree(path, ignore_errors=True)
+        elif os.path.isfile(path):
+            if _should_skip(entry, is_dir=False):
+                continue
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    # Copy snapshot contents
+    for entry in os.listdir(snapshot_dir):
+        src = os.path.join(snapshot_dir, entry)
+        dst = os.path.join(workspace, entry)
+        # Skip cron.json — handled separately
+        if entry == "cron.json":
+            continue
+        if os.path.isdir(src):
+            shutil.copytree(src, dst)
+        elif os.path.isfile(src):
+            shutil.copy2(src, dst)

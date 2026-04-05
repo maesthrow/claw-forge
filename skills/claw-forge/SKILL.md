@@ -38,8 +38,23 @@ python3 /opt/clawforge/src/main.py bind --agent <agent_name> --token <bot_token>
 Когда пользователь описывает задачу и нужно создать агента:
 
 ```bash
-python3 /opt/clawforge/src/main.py create --task "<описание задачи пользователя>" --notify telegram:{{TELEGRAM_USER_ID}}
+python3 /opt/clawforge/src/main.py create \
+  --task "<описание задачи с плейсхолдерами <SECRET:name> вместо реальных секретов>" \
+  --secrets '<JSON с секретами или {}>' \
+  --notify telegram:{{TELEGRAM_USER_ID}}
 ```
+
+**Секреты:** если пользователь упомянул пароли, токены или API-ключи — вынеси их в отдельный JSON, в описании задачи замени на плейсхолдеры `<SECRET:name>`.
+
+Пример с секретом:
+```bash
+python3 /opt/clawforge/src/main.py create \
+  --task "Создай агента calendario. Логин: user@yandex.ru, пароль: <SECRET:caldav_password>" \
+  --secrets '{"caldav_password":"lercvpyhlsvplqym"}' \
+  --notify telegram:{{TELEGRAM_USER_ID}}
+```
+
+Если секретов нет — передавай пустой объект `--secrets '{}'`.
 
 Скрипт запустится в фоне. НЕ жди завершения — она работает в фоне.
 Результат придёт пользователю в чат автоматически.

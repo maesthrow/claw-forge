@@ -168,3 +168,78 @@ def _restore_cron(agent_name, target_cron):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     return had_cron != now_has_cron or target_cron is not None
+
+
+def enforce_retention(agent_name, max_versions=MAX_VERSIONS):
+    """Keep only MAX_VERSIONS newest snapshots, protect current.
+
+    Returns list of removed version ids.
+    """
+    manifest = _load_manifest(agent_name)
+    if len(manifest["versions"]) <= max_versions:
+        return []
+
+    current = manifest.get("current")
+    # Sort by created_at ascending (oldest first)
+    versions_by_age = sorted(manifest["versions"], key=lambda v: v["created_at"])
+
+    to_remove = []
+    for v in versions_by_age:
+        if len(manifest["versions"]) - len(to_remove) <= max_versions:
+            break
+        if v["id"] == current:
+            continue  # never remove current
+        to_remove.append(v)
+
+    versions_dir = _versions_dir(agent_name)
+    for v in to_remove:
+        snapshot_path = os.path.join(versions_dir, v["id"])
+        shutil.rmtree(snapshot_path, ignore_errors=True)
+
+    removed_ids = {v["id"] for v in to_remove}
+    manifest["versions"] = [v for v in manifest["versions"] if v["id"] not in removed_ids]
+    _save_manifest(agent_name, manifest)
+
+    return list(removed_ids)
+
+
+def create_snapshot(agent_name, source, comment, changed_files=None):
+    """Create a snapshot of agent's current workspace state.
+
+    Args:
+        agent_name: name of the agent
+        source: one of "created", "extend_existing", "quick_fix"
+        comment: human-readable description of what changed
+        changed_files: list of file paths that were modified (optional)
+
+    Returns version dict, or None if workspace doesn't exist.
+    """
+    workspace = _workspace_path(agent_name)
+    if not os.path.isdir(workspace):
+        return None
+
+    manifest = _load_manifest(agent_name)
+    number = _next_version_number(manifest)
+    timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
+    version_id = f"v{number}-{timestamp}"
+    created_at = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    snapshot_dir = os.path.join(_versions_dir(agent_name), version_id)
+    _copy_workspace_to_snapshot(workspace, snapshot_dir)
+    _save_cron_to_snapshot(agent_name, snapshot_dir)
+
+    version = {
+        "id": version_id,
+        "number": number,
+        "created_at": created_at,
+        "source": source,
+        "comment": comment,
+        "changed_files": changed_files or []
+    }
+    manifest["versions"].append(version)
+    manifest["current"] = version_id
+    _save_manifest(agent_name, manifest)
+
+    enforce_retention(agent_name)
+
+    return version

@@ -329,3 +329,44 @@ def get_version_info(agent_name, version_ref):
         "cron": cron_data,
         "is_current": version["id"] == manifest.get("current")
     }
+
+
+def rollback_to_version(agent_name, version_ref):
+    """Restore agent workspace to target version.
+
+    Returns dict:
+    - {"status": "ok", "version": {...}, "cron_changed": bool}
+    - {"status": "error", "reason": "..."}
+    """
+    workspace = _workspace_path(agent_name)
+    if not os.path.isdir(workspace):
+        return {"status": "error", "reason": "Агент не найден в реестре."}
+
+    manifest = _load_manifest(agent_name)
+    if not manifest["versions"]:
+        return {"status": "error", "reason": "История пуста, откат невозможен."}
+
+    target = _resolve_version_ref(manifest, version_ref)
+    if not target:
+        return {"status": "error", "reason": f"Версия {version_ref} не найдена."}
+
+    if target["id"] == manifest.get("current"):
+        return {"status": "error", "reason": "Это уже текущая версия, откат не нужен."}
+
+    snapshot_dir = os.path.join(_versions_dir(agent_name), target["id"])
+    if not os.path.isdir(snapshot_dir):
+        return {"status": "error", "reason": f"Снапшот {target['id']} повреждён или удалён. Откат невозможен."}
+
+    _copy_snapshot_to_workspace(snapshot_dir, workspace)
+
+    target_cron = _load_cron_from_snapshot(snapshot_dir)
+    cron_changed = _restore_cron(agent_name, target_cron)
+
+    manifest["current"] = target["id"]
+    _save_manifest(agent_name, manifest)
+
+    return {
+        "status": "ok",
+        "version": target,
+        "cron_changed": cron_changed
+    }

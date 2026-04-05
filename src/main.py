@@ -64,6 +64,14 @@ def is_pipeline_running():
 
 
 def cmd_create(args):
+    try:
+        secrets = json.loads(args.secrets)
+        if not isinstance(secrets, dict):
+            raise ValueError("secrets must be a JSON object")
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"Invalid --secrets JSON: {e}")
+        sys.exit(1)
+
     if args.notify:
         channel, user_id = args.notify.split(":")
 
@@ -80,7 +88,7 @@ def cmd_create(args):
         deploy.clear_pipeline_sessions()
         save_pipeline_pid(os.getpid())
         try:
-            result = orchestration.run_pipeline(args.task)
+            result = orchestration.run_pipeline(args.task, secrets)
             msg = result.get("message", "Конвейер завершён.")
             deploy.send_notification(channel, user_id, msg)
             if result.get("action") in ("created", "extended") and result.get("needs_heartbeat"):
@@ -95,7 +103,7 @@ def cmd_create(args):
             remove_pipeline_pid()
             os._exit(0)
     else:
-        result = orchestration.run_pipeline(args.task)
+        result = orchestration.run_pipeline(args.task, secrets)
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
@@ -220,6 +228,7 @@ def main():
     p_create = subparsers.add_parser("create", help="Create a new agent from task description")
     p_create.add_argument("--task", required=True, help="Task description")
     p_create.add_argument("--notify", help="Notify target after completion (e.g. telegram:541534272)")
+    p_create.add_argument("--secrets", default="{}", help="JSON object with secrets to substitute into agent artifacts")
     p_create.set_defaults(func=cmd_create)
 
     p_list = subparsers.add_parser("list", help="List all agents in registry")

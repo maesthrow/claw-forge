@@ -8,6 +8,7 @@ import time
 
 import deploy
 import registry
+import versioning
 
 
 # Module-level state for secrets during pipeline run.
@@ -627,6 +628,13 @@ def deploy_extension(requirements, artifacts):
         registry.update_agent(target_agent, capabilities=new_caps,
                               description=requirements["description"])
 
+    # Create snapshot after successful extend
+    try:
+        description = requirements.get("description", "Обновление агента")
+        versioning.create_snapshot(target_agent, "extend_existing", description)
+    except Exception as e:
+        print(f"Warning: snapshot creation failed for {target_agent}: {e}")
+
     return {
         "action": "extended",
         "agent_name": target_agent,
@@ -672,6 +680,12 @@ def deploy_new_agent(requirements, artifacts):
             )
         except Exception as e:
             heartbeat_note = f" Heartbeat не создан: {str(e)[:200]}"
+
+    # Create snapshot after successful deploy
+    try:
+        versioning.create_snapshot(agent_name, "created", "Создан с нуля")
+    except Exception as e:
+        print(f"Warning: snapshot creation failed for {agent_name}: {e}")
 
     return {
         "action": "created",

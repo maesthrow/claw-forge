@@ -831,8 +831,8 @@ def log_pipeline_event(agent_name, prompt, response, status):
     log_path = os.path.join(log_dir, "pipeline.log")
 
     timestamp = datetime.datetime.now().isoformat()
-    prompt_short = mask_secrets_in_text(prompt[:200].replace('\n', ' '))
-    response_short = mask_secrets_in_text(response[:500].replace('\n', ' '))
+    prompt_short = mask_secrets_in_text(prompt)[:200].replace('\n', ' ')
+    response_short = mask_secrets_in_text(response)[:500].replace('\n', ' ')
 
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(f"[{timestamp}] agent={agent_name} status={status}\n")

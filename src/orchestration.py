@@ -594,6 +594,12 @@ def deploy_extension(requirements, artifacts):
     """Full update of an existing agent: files, skills, data, heartbeat, registry."""
     target_agent = requirements["extend_agent"]
 
+    # Backfill original state before applying changes (no-op if history exists)
+    try:
+        versioning.capture_original_if_empty(target_agent)
+    except Exception as e:
+        print(f"Warning: capture failed for {target_agent}: {e}")
+
     # Update all agent files (only writes provided ones)
     deploy.update_agent_files(
         name=target_agent,

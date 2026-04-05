@@ -245,6 +245,22 @@ def create_snapshot(agent_name, source, comment, changed_files=None):
     return version
 
 
+def capture_original_if_empty(agent_name):
+    """Backfill: snapshot current workspace as v1 'captured' if history is empty.
+
+    Idempotent — safe to call multiple times. Returns version dict on capture,
+    or None if history already has versions.
+    """
+    manifest = _load_manifest(agent_name)
+    if manifest["versions"]:
+        return None
+    return create_snapshot(
+        agent_name,
+        "captured",
+        "Существовавший агент, захвачен при первом изменении"
+    )
+
+
 def list_versions(agent_name):
     """Return manifest dict with current + versions list, sorted newest first."""
     manifest = _load_manifest(agent_name)

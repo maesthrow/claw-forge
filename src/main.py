@@ -236,6 +236,20 @@ def cmd_snapshot(args):
     print(f"Комментарий: {version['comment']}")
 
 
+def cmd_capture(args):
+    agent = registry.get_agent(args.agent)
+    if not agent:
+        print(f"Агент '{args.agent}' не найден в реестре.")
+        sys.exit(1)
+
+    version = versioning.capture_original_if_empty(args.agent)
+    if version is None:
+        print(f"История '{args.agent}' уже содержит версии, capture не нужен.")
+        return
+
+    print(f"Оригинальное состояние захвачено: v{version['number']} ({version['id']})")
+
+
 def _format_source(source):
     labels = {
         "created": "создан",
@@ -376,6 +390,10 @@ def main():
     p_snapshot.add_argument("--agent", required=True, help="Agent name")
     p_snapshot.add_argument("--comment", required=True, help="Description of changes")
     p_snapshot.set_defaults(func=cmd_snapshot)
+
+    p_capture = subparsers.add_parser("capture", help="Backfill: snapshot original state if history is empty (idempotent)")
+    p_capture.add_argument("--agent", required=True, help="Agent name")
+    p_capture.set_defaults(func=cmd_capture)
 
     p_history = subparsers.add_parser("history", help="Show agent version history")
     p_history.add_argument("--agent", required=True, help="Agent name")

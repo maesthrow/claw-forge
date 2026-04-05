@@ -108,3 +108,63 @@ def _copy_snapshot_to_workspace(snapshot_dir, workspace):
             shutil.copytree(src, dst)
         elif os.path.isfile(src):
             shutil.copy2(src, dst)
+
+
+def _save_cron_to_snapshot(agent_name, snapshot_dir):
+    """Save agent's cron job data to snapshot dir, if exists."""
+    jobs_path = os.path.join(OPENCLAW_HOME, "cron", "jobs.json")
+    try:
+        with open(jobs_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return
+
+    for job in data.get("jobs", []):
+        if job.get("agentId") == agent_name:
+            cron_snapshot_path = os.path.join(snapshot_dir, "cron.json")
+            with open(cron_snapshot_path, "w", encoding="utf-8") as f:
+                json.dump(job, f, ensure_ascii=False, indent=2)
+            return
+
+
+def _load_cron_from_snapshot(snapshot_dir):
+    """Load cron job data from snapshot dir, or None if no cron was saved."""
+    cron_path = os.path.join(snapshot_dir, "cron.json")
+    try:
+        with open(cron_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _restore_cron(agent_name, target_cron):
+    """Restore cron job state to match target_cron (may be None).
+
+    Returns True if jobs.json was modified (caller should restart gateway).
+    """
+    jobs_path = os.path.join(OPENCLAW_HOME, "cron", "jobs.json")
+    try:
+        with open(jobs_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {"version": 1, "jobs": []}
+
+    original_jobs = list(data.get("jobs", []))
+    # Remove existing cron for this agent
+    data["jobs"] = [j for j in original_jobs if j.get("agentId") != agent_name]
+
+    had_cron = len(data["jobs"]) != len(original_jobs)
+
+    if target_cron is not None:
+        data["jobs"].append(target_cron)
+
+    now_has_cron = target_cron is not None
+
+    if had_cron == now_has_cron and target_cron is None:
+        return False  # nothing changed
+
+    os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
+    with open(jobs_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    return had_cron != now_has_cron or target_cron is not None

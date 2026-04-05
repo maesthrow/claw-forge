@@ -309,7 +309,23 @@ def format_notification(deploy_result, requirements, test_report=None, reviewer_
     return msg
 
 
-def run_pipeline(task_description):
+def run_pipeline(task_description, secrets=None):
+    """Run the full creation pipeline: analyst -> developer -> reviewer -> deploy -> tester.
+
+    Args:
+        task_description: user task text (may contain <SECRET:name> placeholders)
+        secrets: dict mapping secret names to real values. Used to substitute
+                 placeholders in artifacts before deploy. Never passed to LLMs.
+    """
+    global _PIPELINE_SECRETS
+    _PIPELINE_SECRETS = secrets or {}
+    try:
+        return _run_pipeline_impl(task_description)
+    finally:
+        _PIPELINE_SECRETS = {}
+
+
+def _run_pipeline_impl(task_description):
     """Run the full creation pipeline: analyst -> developer -> reviewer -> deploy -> tester."""
 
     # 1. Check registry for existing agents
@@ -497,6 +513,21 @@ def run_pipeline(task_description):
             "message": format_notification(
                 {"action": "rejected", "agent_name": requirements.get("agent_name", "?"), "issues": reviewer_issues},
                 requirements
+            )
+        }
+
+    # Substitute secrets before deploy
+    try:
+        artifacts = substitute_secrets(artifacts, _PIPELINE_SECRETS)
+    except ValueError as e:
+        return {
+            "action": "rejected",
+            "agent_name": requirements.get("agent_name", "?"),
+            "issues": [str(e)],
+            "message": (
+                f"Не удалось создать агента: в артефактах остались "
+                f"нераскрытые секреты ({e}). Это внутренняя ошибка пайплайна. "
+                f"Попробуй создать агента заново."
             )
         }
 
@@ -800,8 +831,8 @@ def log_pipeline_event(agent_name, prompt, response, status):
     log_path = os.path.join(log_dir, "pipeline.log")
 
     timestamp = datetime.datetime.now().isoformat()
-    prompt_short = prompt[:200].replace('\n', ' ')
-    response_short = response[:500].replace('\n', ' ')
+    prompt_short = mask_secrets_in_text(prompt[:200].replace('\n', ' '))
+    response_short = mask_secrets_in_text(response[:500].replace('\n', ' '))
 
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(f"[{timestamp}] agent={agent_name} status={status}\n")

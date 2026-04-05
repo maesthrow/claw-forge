@@ -10,6 +10,14 @@ import deploy
 import registry
 
 
+# Module-level state for secrets during pipeline run.
+# Set in run_pipeline(), cleared in finally block.
+# Used by log masking to avoid passing secrets through every layer.
+_PIPELINE_SECRETS = {}
+
+SECRET_PLACEHOLDER_RE = re.compile(r'<SECRET:([a-z][a-z0-9_]*)>')
+MALFORMED_PLACEHOLDER_RE = re.compile(r'<SECRET:')
+
 PIPELINE_STEP_DELAY = 2  # seconds between pipeline steps to reduce API pressure
 
 
@@ -112,6 +120,65 @@ def format_agent_files_for_prompt(files, label):
             parts.append(f"=== {script_path} ===\n{content}\n")
 
     return "\n".join(parts)
+
+
+def substitute_secrets(artifacts, secrets):
+    """Replace <SECRET:name> placeholders in artifacts with real values.
+
+    Raises ValueError if placeholder found but no matching secret provided,
+    or if malformed placeholders remain after substitution.
+    """
+    missing = set()
+
+    def replace(text):
+        if not isinstance(text, str):
+            return text
+        def sub(m):
+            name = m.group(1)
+            if name not in secrets:
+                missing.add(name)
+                return m.group(0)
+            return secrets[name]
+        return SECRET_PLACEHOLDER_RE.sub(sub, text)
+
+    for key in ["soul_md", "agents_md", "identity_md"]:
+        if key in artifacts:
+            artifacts[key] = replace(artifacts[key])
+
+    for nested_key in ["skills", "data_files", "scripts"]:
+        if nested_key in artifacts and isinstance(artifacts[nested_key], dict):
+            for fname, content in artifacts[nested_key].items():
+                artifacts[nested_key][fname] = replace(content)
+
+    if missing:
+        raise ValueError(f"Missing secrets: {', '.join(sorted(missing))}")
+
+    # Check for malformed placeholders left unreplaced
+    for key in ["soul_md", "agents_md", "identity_md"]:
+        if key in artifacts and isinstance(artifacts[key], str):
+            if MALFORMED_PLACEHOLDER_RE.search(artifacts[key]):
+                raise ValueError(f"Malformed secret placeholder in {key}")
+    for nested_key in ["skills", "data_files", "scripts"]:
+        if nested_key in artifacts and isinstance(artifacts[nested_key], dict):
+            for fname, content in artifacts[nested_key].items():
+                if isinstance(content, str) and MALFORMED_PLACEHOLDER_RE.search(content):
+                    raise ValueError(f"Malformed secret placeholder in {nested_key}/{fname}")
+
+    return artifacts
+
+
+def mask_secrets_in_text(text):
+    """Replace secret values with *** in text using _PIPELINE_SECRETS.
+
+    Only masks values with length >= 8 to avoid accidentally masking
+    common words.
+    """
+    if not _PIPELINE_SECRETS:
+        return text
+    for value in _PIPELINE_SECRETS.values():
+        if value and len(value) >= 8:
+            text = text.replace(value, "***")
+    return text
 
 
 def build_reviewer_prompt(requirements, artifacts, previous_agent_context=None):

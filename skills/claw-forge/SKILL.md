@@ -74,3 +74,42 @@ python3 /opt/clawforge/src/main.py cancel --notify telegram:{{TELEGRAM_USER_ID}}
 ```bash
 python3 /opt/clawforge/src/main.py search --query "<поисковый запрос>"
 ```
+
+## История версий агента
+
+Когда пользователь спрашивает "покажи версии <имя>", "какие версии у <имя>", "история <имя>":
+
+```bash
+python3 /opt/clawforge/src/main.py history --agent <agent_name>
+```
+
+Для подробной информации о конкретной версии:
+
+```bash
+python3 /opt/clawforge/src/main.py history --agent <agent_name> --version <номер>
+```
+
+## Откат на предыдущую версию
+
+Когда пользователь просит "откати <имя> на v<номер>", "верни <имя> как было", "откати <имя>":
+
+ПЕРЕД вызовом откатa ОБЯЗАТЕЛЬНО:
+1. Показать историю агента (history) и версию-цель (history --version)
+2. Показать пользователю что изменится при откате (diff: файлы, cron)
+3. Запросить явное подтверждение ("да", "откатываю")
+
+```bash
+python3 /opt/clawforge/src/main.py rollback --agent <agent_name> --version <номер> --notify telegram:{{TELEGRAM_USER_ID}}
+```
+
+После отката бот пришлёт пользователю уведомление.
+
+## Сохранить снапшот (после быстрого фикса)
+
+Когда завершил ручную правку файлов агента и успешно протестировал — ОБЯЗАТЕЛЬНО сохрани снапшот:
+
+```bash
+python3 /opt/clawforge/src/main.py snapshot --agent <agent_name> --comment "<краткое описание правки>"
+```
+
+Без этого шага правка не зафиксируется в истории, откат на эту версию позже будет невозможен.

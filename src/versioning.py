@@ -141,6 +141,7 @@ def _restore_cron(agent_name, target_cron):
     """Restore cron job state to match target_cron (may be None).
 
     Returns True if jobs.json was modified (caller should restart gateway).
+    Skips write when existing cron is semantically identical to target.
     """
     jobs_path = os.path.join(OPENCLAW_HOME, "cron", "jobs.json")
     try:
@@ -149,33 +150,28 @@ def _restore_cron(agent_name, target_cron):
     except (FileNotFoundError, json.JSONDecodeError):
         data = {"version": 1, "jobs": []}
 
-    original_jobs = list(data.get("jobs", []))
-    # Remove existing cron for this agent
-    data["jobs"] = [j for j in original_jobs if j.get("agentId") != agent_name]
+    existing = next((j for j in data.get("jobs", []) if j.get("agentId") == agent_name), None)
+    if existing == target_cron:
+        return False
 
-    had_cron = len(data["jobs"]) != len(original_jobs)
-
+    data["jobs"] = [j for j in data.get("jobs", []) if j.get("agentId") != agent_name]
     if target_cron is not None:
         data["jobs"].append(target_cron)
-
-    now_has_cron = target_cron is not None
-
-    if had_cron == now_has_cron and target_cron is None:
-        return False  # nothing changed
 
     os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
     with open(jobs_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-    return had_cron != now_has_cron or target_cron is not None
+    return True
 
 
-def enforce_retention(agent_name, max_versions=MAX_VERSIONS):
+def enforce_retention(agent_name, max_versions=MAX_VERSIONS, manifest=None):
     """Keep only MAX_VERSIONS newest snapshots, protect current.
 
     Returns list of removed version ids.
     """
-    manifest = _load_manifest(agent_name)
+    if manifest is None:
+        manifest = _load_manifest(agent_name)
     if len(manifest["versions"]) <= max_versions:
         return []
 
@@ -240,7 +236,7 @@ def create_snapshot(agent_name, source, comment, changed_files=None):
     manifest["current"] = version_id
     _save_manifest(agent_name, manifest)
 
-    enforce_retention(agent_name)
+    enforce_retention(agent_name, manifest=manifest)
 
     return version
 
@@ -374,6 +370,11 @@ def rollback_to_version(agent_name, version_ref):
         return {"status": "error", "reason": f"Снапшот {target['id']} повреждён или удалён. Откат невозможен."}
 
     _copy_snapshot_to_workspace(snapshot_dir, workspace)
+
+    # Sync to default workspace (OpenClaw's copy) if it exists
+    default_workspace = os.path.join(OPENCLAW_HOME, f"workspace-{agent_name}")
+    if os.path.isdir(default_workspace):
+        _copy_snapshot_to_workspace(snapshot_dir, default_workspace)
 
     target_cron = _load_cron_from_snapshot(snapshot_dir)
     cron_changed = _restore_cron(agent_name, target_cron)

@@ -286,8 +286,6 @@ def cmd_history(args):
         print()
         print(f"Комментарий: {v['comment']}")
         print(f"Создан: {v['source']}")
-        if v.get("changed_files"):
-            print(f"Изменено: {', '.join(v['changed_files'])}")
         print()
         cron = info["cron"]
         if cron:
@@ -320,8 +318,6 @@ def cmd_history(args):
         marker = "  ← текущая" if v["id"] == current_id else ""
         print(f"v{v['number']} ({_format_source(v['source'])}) — {_format_date(v['created_at'])}{marker}")
         print(f"  Комментарий: {v['comment']}")
-        if v.get("changed_files"):
-            print(f"  Изменено: {', '.join(v['changed_files'])}")
         print()
     print(f"Откатить: python3 main.py rollback --agent {args.agent} --version <номер>")
 

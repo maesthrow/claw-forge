@@ -243,3 +243,89 @@ def create_snapshot(agent_name, source, comment, changed_files=None):
     enforce_retention(agent_name)
 
     return version
+
+
+def list_versions(agent_name):
+    """Return manifest dict with current + versions list, sorted newest first."""
+    manifest = _load_manifest(agent_name)
+    manifest["versions"] = sorted(
+        manifest["versions"],
+        key=lambda v: v["created_at"],
+        reverse=True
+    )
+    return manifest
+
+
+def _resolve_version_ref(manifest, version_ref):
+    """Resolve version reference to full version dict.
+
+    version_ref can be:
+    - int or numeric string: matches "number" field
+    - full id string: "v2-2026-04-01T09-15-22"
+    - "previous": previous version relative to current
+    - "current": current version
+    """
+    if version_ref is None:
+        return None
+
+    if version_ref == "current":
+        current_id = manifest.get("current")
+        for v in manifest["versions"]:
+            if v["id"] == current_id:
+                return v
+        return None
+
+    if version_ref == "previous":
+        current_id = manifest.get("current")
+        sorted_versions = sorted(manifest["versions"], key=lambda v: v["created_at"])
+        for i, v in enumerate(sorted_versions):
+            if v["id"] == current_id and i > 0:
+                return sorted_versions[i - 1]
+        return None
+
+    try:
+        num = int(version_ref)
+        for v in manifest["versions"]:
+            if v["number"] == num:
+                return v
+    except (ValueError, TypeError):
+        pass
+
+    for v in manifest["versions"]:
+        if v["id"] == version_ref:
+            return v
+
+    return None
+
+
+def get_version_info(agent_name, version_ref):
+    """Get detailed info about a specific version.
+
+    Returns dict with version metadata + file list, or None if not found.
+    """
+    manifest = _load_manifest(agent_name)
+    version = _resolve_version_ref(manifest, version_ref)
+    if not version:
+        return None
+
+    snapshot_dir = os.path.join(_versions_dir(agent_name), version["id"])
+    files_info = []
+
+    if os.path.isdir(snapshot_dir):
+        for root, dirs, files in os.walk(snapshot_dir):
+            for fname in files:
+                if fname == "cron.json":
+                    continue
+                fpath = os.path.join(root, fname)
+                rel = os.path.relpath(fpath, snapshot_dir)
+                size = os.path.getsize(fpath)
+                files_info.append({"path": rel, "size": size})
+
+    cron_data = _load_cron_from_snapshot(snapshot_dir)
+
+    return {
+        "version": version,
+        "files": sorted(files_info, key=lambda f: f["path"]),
+        "cron": cron_data,
+        "is_current": version["id"] == manifest.get("current")
+    }

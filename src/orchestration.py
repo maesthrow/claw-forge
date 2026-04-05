@@ -428,7 +428,6 @@ def _run_pipeline_impl(task_description):
                     "Текущие файлы агента (ОБНОВИ их, не переписывай с нуля)"
                 )
 
-    # For create_new: load reference agent files if specified
     reference_context = ""
     if requirements.get("decision") == "create_new" and requirements.get("reference_agents"):
         ref_parts = []
@@ -509,7 +508,6 @@ def _run_pipeline_impl(task_description):
             )
         }
 
-    # Substitute secrets before deploy
     try:
         artifacts = substitute_secrets(artifacts, _PIPELINE_SECRETS)
     except ValueError as e:

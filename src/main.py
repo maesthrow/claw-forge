@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import registry
 import orchestration
 import deploy
+import versioning
 
 
 PIPELINE_PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs", "pipeline.pid")
@@ -220,6 +221,126 @@ def cmd_delete(args):
     print(f"Агент '{args.agent}' удалён.")
 
 
+def cmd_snapshot(args):
+    agent = registry.get_agent(args.agent)
+    if not agent:
+        print(f"Агент '{args.agent}' не найден в реестре.")
+        sys.exit(1)
+
+    version = versioning.create_snapshot(args.agent, "quick_fix", args.comment)
+    if version is None:
+        print(f"Не удалось создать снапшот: workspace агента '{args.agent}' не найден.")
+        sys.exit(1)
+
+    print(f"Снапшот создан: v{version['number']} ({version['id']})")
+    print(f"Комментарий: {version['comment']}")
+
+
+def _format_source(source):
+    labels = {
+        "created": "создан",
+        "extend_existing": "extend",
+        "quick_fix": "quick fix"
+    }
+    return labels.get(source, source)
+
+
+def _format_date(iso_timestamp):
+    """Format ISO timestamp to readable dd.MM.yyyy HH:MM."""
+    try:
+        dt = datetime.datetime.strptime(iso_timestamp, "%Y-%m-%dT%H:%M:%SZ")
+        return dt.strftime("%d.%m.%Y %H:%M")
+    except ValueError:
+        return iso_timestamp
+
+
+def cmd_history(args):
+    agent = registry.get_agent(args.agent)
+    if not agent:
+        print(f"Агент '{args.agent}' не найден в реестре.")
+        sys.exit(1)
+
+    if args.version:
+        info = versioning.get_version_info(args.agent, args.version)
+        if not info:
+            print(f"Версия {args.version} не найдена.")
+            sys.exit(1)
+        v = info["version"]
+        print(f"{args.agent} v{v['number']} ({_format_source(v['source'])}) — {_format_date(v['created_at'])}")
+        if info["is_current"]:
+            print("  (текущая)")
+        print()
+        print(f"Комментарий: {v['comment']}")
+        print(f"Создан: {v['source']}")
+        if v.get("changed_files"):
+            print(f"Изменено: {', '.join(v['changed_files'])}")
+        print()
+        cron = info["cron"]
+        if cron:
+            schedule = cron.get("schedule", {})
+            print(f"Cron: {schedule.get('expr', '?')} {schedule.get('tz', '')}, enabled={cron.get('enabled', False)}")
+        else:
+            print("Cron: нет")
+        print()
+        print("Файлы:")
+        for f in info["files"]:
+            size_kb = f["size"] / 1024
+            print(f"  {f['path']} ({size_kb:.1f} KB)")
+        return
+
+    manifest = versioning.list_versions(args.agent)
+    if not manifest["versions"]:
+        print(f"История {args.agent} пуста.")
+        return
+
+    current_id = manifest.get("current")
+    current_num = None
+    for v in manifest["versions"]:
+        if v["id"] == current_id:
+            current_num = v["number"]
+            break
+
+    print(f"История {args.agent} (текущая: v{current_num}):" if current_num else f"История {args.agent}:")
+    print()
+    for v in manifest["versions"]:
+        marker = "  ← текущая" if v["id"] == current_id else ""
+        print(f"v{v['number']} ({_format_source(v['source'])}) — {_format_date(v['created_at'])}{marker}")
+        print(f"  Комментарий: {v['comment']}")
+        if v.get("changed_files"):
+            print(f"  Изменено: {', '.join(v['changed_files'])}")
+        print()
+    print(f"Откатить: python3 main.py rollback --agent {args.agent} --version <номер>")
+
+
+def cmd_rollback(args):
+    agent = registry.get_agent(args.agent)
+    if not agent:
+        print(f"Агент '{args.agent}' не найден в реестре.")
+        sys.exit(1)
+
+    result = versioning.rollback_to_version(args.agent, args.version)
+    if result["status"] == "error":
+        print(result["reason"])
+        sys.exit(1)
+
+    target = result["version"]
+    print(f"Готово. Текущая версия {args.agent} — v{target['number']}.")
+
+    # Gateway restart if cron changed
+    if result["cron_changed"]:
+        try:
+            deploy.run_cmd("openclaw gateway restart")
+        except RuntimeError as e:
+            print(f"Warning: gateway restart failed: {e}")
+
+    if args.notify:
+        channel, user_id = args.notify.split(":")
+        deploy.send_notification(
+            channel, user_id,
+            f"Агент '{args.agent}' откачен на v{target['number']}."
+        )
+
+
 def main():
     registry.init_db()
     parser = argparse.ArgumentParser(description="ClawForge CLI")
@@ -250,6 +371,22 @@ def main():
     p_cancel = subparsers.add_parser("cancel", help="Cancel running pipeline")
     p_cancel.add_argument("--notify", help="Notify target after cancellation")
     p_cancel.set_defaults(func=cmd_cancel)
+
+    p_snapshot = subparsers.add_parser("snapshot", help="Create a manual snapshot of agent")
+    p_snapshot.add_argument("--agent", required=True, help="Agent name")
+    p_snapshot.add_argument("--comment", required=True, help="Description of changes")
+    p_snapshot.set_defaults(func=cmd_snapshot)
+
+    p_history = subparsers.add_parser("history", help="Show agent version history")
+    p_history.add_argument("--agent", required=True, help="Agent name")
+    p_history.add_argument("--version", help="Show details for specific version (number or id or 'previous')")
+    p_history.set_defaults(func=cmd_history)
+
+    p_rollback = subparsers.add_parser("rollback", help="Rollback agent to previous version")
+    p_rollback.add_argument("--agent", required=True, help="Agent name")
+    p_rollback.add_argument("--version", required=True, help="Target version (number, id, or 'previous')")
+    p_rollback.add_argument("--notify", help="Notify target after completion")
+    p_rollback.set_defaults(func=cmd_rollback)
 
     args = parser.parse_args()
     args.func(args)

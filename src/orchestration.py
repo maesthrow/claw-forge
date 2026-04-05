@@ -95,6 +95,21 @@ def load_agent_files(workspace_path):
     return files
 
 
+def _render_agent_files(files):
+    """Render agent files as === file === blocks, without label."""
+    parts = []
+    for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
+        if fname in files:
+            parts.append(f"=== {fname} ===\n{files[fname]}\n")
+    if "skills" in files:
+        for skill_path, content in files["skills"].items():
+            parts.append(f"=== {skill_path} ===\n{content}\n")
+    if "scripts" in files:
+        for script_path, content in files["scripts"].items():
+            parts.append(f"=== {script_path} ===\n{content}\n")
+    return "\n".join(parts)
+
+
 def format_agent_files_for_prompt(files, label):
     """Format loaded agent files into a prompt block.
 
@@ -102,24 +117,7 @@ def format_agent_files_for_prompt(files, label):
         files: dict from load_agent_files()
         label: context label, e.g. "Текущие файлы агента (ОБНОВИ их, не переписывай с нуля)"
     """
-    parts = [f"\n{label}:\n"]
-
-    # Core files
-    for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
-        if fname in files:
-            parts.append(f"=== {fname} ===\n{files[fname]}\n")
-
-    # Skills
-    if "skills" in files:
-        for skill_path, content in files["skills"].items():
-            parts.append(f"=== {skill_path} ===\n{content}\n")
-
-    # Scripts
-    if "scripts" in files:
-        for script_path, content in files["scripts"].items():
-            parts.append(f"=== {script_path} ===\n{content}\n")
-
-    return "\n".join(parts)
+    return f"\n{label}:\n\n{_render_agent_files(files)}"
 
 
 def substitute_secrets(artifacts, secrets):
@@ -440,15 +438,7 @@ def _run_pipeline_impl(task_description):
                 ref_files = load_agent_files(ref_agent["workspace_path"])
                 if ref_files:
                     ref_parts.append(f"--- Агент: {ref_name} ---\n")
-                    for fname in ["SOUL.md", "AGENTS.md", "IDENTITY.md"]:
-                        if fname in ref_files:
-                            ref_parts.append(f"=== {fname} ===\n{ref_files[fname]}\n")
-                    if "skills" in ref_files:
-                        for skill_path, content in ref_files["skills"].items():
-                            ref_parts.append(f"=== {skill_path} ===\n{content}\n")
-                    if "scripts" in ref_files:
-                        for script_path, content in ref_files["scripts"].items():
-                            ref_parts.append(f"=== {script_path} ===\n{content}\n")
+                    ref_parts.append(_render_agent_files(ref_files))
         if ref_parts:
             reference_context = (
                 "\nФайлы похожего агента для РЕФЕРЕНСА "
